@@ -31,7 +31,7 @@ class CreateFoldersTests(unittest.TestCase):
     def test_rejects_nested_and_traversal_names(self):
         result = create_folders(str(self.parent), ["../outside", "nested/child", r"nested\\child", "3"])
 
-        self.assertIn("3 created", result)
+        self.assertIn("1 created, 0 already existed, 3 failed", result)
         self.assertIn("3 failed", result)
         self.assertTrue((self.parent / "3").is_dir())
         self.assertFalse((self.parent / "nested").exists())
