@@ -1292,7 +1292,7 @@ class SetupOverlay(QWidget):
 
         os_row = QHBoxLayout(); os_row.setSpacing(8)
         self._os_btns: dict[str, QPushButton] = {}
-        for key, label in [("windows","⊞  Windows"),("mac","  macOS"),("linux","🐧  Linux")]:
+        for key, label in [("windows","Windows"),("mac","macOS"),("linux","Linux")]:
             btn = QPushButton(label)
             btn.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
             btn.setFixedHeight(34)
@@ -1665,7 +1665,7 @@ class PluginManagerOverlay(QWidget):
     def _build_row(self, p: dict) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(8)
 
-        label_text = p["name"] if p["valid"] else f"{p['name']}  (⚠ {p['file']})"
+        label_text = p["name"] if p["valid"] else f"{p['name']}  (INVALID: {p['file']})"
         lbl = QLabel(label_text)
         lbl.setFont(QFont(FONT_MAIN, 9))
         lbl.setStyleSheet(f"color: {C.TEXT if p['valid'] else C.TEXT_DIM}; background: transparent;")
@@ -2945,7 +2945,9 @@ class MainWindow(QMainWindow):
         remote_btn.clicked.connect(self._open_remote)
         lay.addWidget(remote_btn)
 
-        fs_btn = QPushButton("⛶  FULLSCREEN  [F11]")
+        fs_btn = QPushButton("FULLSCREEN  [F11]")
+        fs_btn.setIcon(svg_icon("maximize", C.PRI))
+        fs_btn.setIconSize(QSize(15, 15))
         fs_btn.setFixedHeight(28)
         fs_btn.setFont(QFont(FONT_MAIN, 8))
         fs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3441,7 +3443,9 @@ class MainWindow(QMainWindow):
         if not hasattr(self, '_brief_btn'):
             return
         if enabled:
-            self._brief_btn.setText("☀  MORNING BRIEF: ON")
+            self._brief_btn.setText("MORNING BRIEF: ON")
+            self._brief_btn.setIcon(svg_icon("sun", C.ACC2))
+            self._brief_btn.setIconSize(QSize(15, 15))
             self._brief_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #001A08; color: {C.GREEN};
@@ -3451,7 +3455,9 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {{ background: #002010; }}
             """)
         else:
-            self._brief_btn.setText("☀  MORNING BRIEF: OFF")
+            self._brief_btn.setText("MORNING BRIEF: OFF")
+            self._brief_btn.setIcon(svg_icon("sun", C.TEXT_DIM))
+            self._brief_btn.setIconSize(QSize(15, 15))
             self._brief_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent; color: {C.TEXT_DIM};
