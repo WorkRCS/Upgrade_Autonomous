@@ -1004,9 +1004,9 @@ class ApiKeyOverlay(QWidget):
     """Real API-key editor. The Test action opens an actual Gemini Live session."""
 
     saved = pyqtSignal()
-    _test_result = pyqtSignal(bool, str, str)
+    _test_result = pyqtSignal(bool, str, str, int)
 
-    _OW, _OH = 500, 330
+    _OW, _OH = 540, 440
 
     def __init__(self, current_key: str = "", parent=None):
         super().__init__(parent)
@@ -1025,16 +1025,40 @@ class ApiKeyOverlay(QWidget):
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(10)
 
-        title = QLabel("GEMINI API KEY")
+        title = QLabel("LLM & API CONNECTION")
         title.setFont(QFont(FONT_MAIN, 13, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
         layout.addWidget(title)
 
-        desc = QLabel("Edit the saved key, verify it against Gemini Live, then save and reconnect.")
+        desc = QLabel("Check the configured provider, model, and a real model response before saving the key.")
         desc.setWordWrap(True)
         desc.setFont(QFont(FONT_MAIN, 9))
         desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
         layout.addWidget(desc)
+
+        status_card = QFrame(self)
+        status_card.setStyleSheet(
+            f"QFrame {{ background: {C.PANEL2}; border: 1px solid {C.BORDER}; border-radius: 7px; }}"
+        )
+        status_layout = QVBoxLayout(status_card)
+        status_layout.setContentsMargins(10, 8, 10, 8)
+        status_layout.setSpacing(3)
+
+        self._provider_info = QLabel("PROVIDER  Google Gemini Live API · cloud-hosted")
+        self._model_info = QLabel("MODEL  models/gemini-2.5-flash-native-audio-preview-12-2025")
+        self._local_info = QLabel("LOCAL LLM  Not configured · this build currently uses cloud Gemini")
+        self._connection_status = QLabel("CONNECTION  NOT TESTED")
+        self._latency_status = QLabel("TIME TO FIRST MODEL RESPONSE  —")
+        for info in (self._provider_info, self._model_info, self._local_info,
+                     self._connection_status, self._latency_status):
+            info.setWordWrap(True)
+            info.setFont(QFont(FONT_MAIN, 8, QFont.Weight.DemiBold))
+            info.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent; border: none;")
+            status_layout.addWidget(info)
+        self._connection_status.setStyleSheet(
+            f"color: {C.TEXT_DIM}; background: transparent; border: none; font-weight: 700;"
+        )
+        layout.addWidget(status_card)
 
         self._key_input = QLineEdit(current_key)
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
@@ -1059,7 +1083,7 @@ class ApiKeyOverlay(QWidget):
         key_hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
         layout.addWidget(key_hint)
 
-        self._status = QLabel("Test the key before saving it.")
+        self._status = QLabel("Test both the API connection and an actual model response before saving.")
         self._status.setWordWrap(True)
         self._status.setMinimumHeight(34)
         self._status.setFont(QFont(FONT_MAIN, 9))
@@ -1130,6 +1154,11 @@ class ApiKeyOverlay(QWidget):
         if not self._test_running:
             self._status.setText("Key changed. Test it before saving.")
             self._status.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+            self._connection_status.setText("CONNECTION  NOT TESTED")
+            self._connection_status.setStyleSheet(
+                f"color: {C.TEXT_DIM}; background: transparent; border: none; font-weight: 700;"
+            )
+            self._latency_status.setText("TIME TO FIRST MODEL RESPONSE  —")
 
     def _test_key(self):
         key = self._key_input.text().strip()
@@ -1141,17 +1170,24 @@ class ApiKeyOverlay(QWidget):
         self._test_running = True
         self._test_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
-        self._status.setText("Connecting to Gemini Live to verify this key…")
+        self._status.setText("Opening a Live session and waiting for an actual model response…")
         self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
+        self._connection_status.setText("CONNECTION  TESTING…")
+        self._connection_status.setStyleSheet(
+            f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
+        )
+        self._latency_status.setText("TIME TO FIRST MODEL RESPONSE  measuring…")
         threading.Thread(target=self._probe_live_key, args=(key,), daemon=True).start()
 
     def _probe_live_key(self, key: str):
+        latency_ms = -1
         try:
             import asyncio
             from google import genai
             from google.genai import types
 
             async def _probe():
+                started = time.perf_counter()
                 client = genai.Client(
                     api_key=key,
                     http_options={"api_version": "v1beta"},
@@ -1169,24 +1205,56 @@ class ApiKeyOverlay(QWidget):
                 async with client.aio.live.connect(
                     model="models/gemini-2.5-flash-native-audio-preview-12-2025",
                     config=config,
-                ):
-                    return
+                ) as session:
+                    await session.send_client_content(
+                        turns={"parts": [{"text": "Say only: OK."}]},
+                        turn_complete=True,
+                    )
 
-            asyncio.run(_probe())
-            message = "Live API connection succeeded. This key was accepted."
-            self._test_result.emit(True, message, key)
+                    async def _wait_for_first_output() -> bool:
+                        async for response in session.receive():
+                            if getattr(response, "data", None):
+                                return True
+                            server_content = getattr(response, "server_content", None)
+                            if server_content:
+                                model_turn = getattr(server_content, "model_turn", None)
+                                parts = getattr(model_turn, "parts", None) or []
+                                if any(
+                                    getattr(part, "inline_data", None) is not None
+                                    or bool(getattr(part, "text", None))
+                                    for part in parts
+                                ):
+                                    return True
+                                if getattr(server_content, "turn_complete", False):
+                                    return False
+                        return False
+
+                    got_output = await asyncio.wait_for(_wait_for_first_output(), timeout=18.0)
+                    elapsed = int((time.perf_counter() - started) * 1000)
+                    if not got_output:
+                        raise RuntimeError("Live session opened, but the model returned no output.")
+                    return elapsed
+
+            latency_ms = asyncio.run(asyncio.wait_for(_probe(), timeout=22.0))
+            message = f"Live API connected and the model responded successfully in {latency_ms} ms."
+            self._test_result.emit(True, message, key, latency_ms)
         except Exception as exc:
             detail = str(exc).replace(key, "[REDACTED]")[:180]
-            message = f"Live API test failed ({type(exc).__name__}). {detail}"
-            self._test_result.emit(False, message, key)
+            message = f"Live model test failed ({type(exc).__name__}). {detail}"
+            self._test_result.emit(False, message, key, latency_ms)
 
-    def _finish_test(self, ok: bool, message: str, key: str):
+    def _finish_test(self, ok: bool, message: str, key: str, latency_ms: int):
         self._test_running = False
         self._test_btn.setEnabled(True)
         key_still_matches = key == self._key_input.text().strip()
         if ok and key_still_matches:
             self._status.setText(message)
             self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+            self._connection_status.setText("CONNECTION  ONLINE · MODEL RESPONSE RECEIVED")
+            self._connection_status.setStyleSheet(
+                f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
+            )
+            self._latency_status.setText(f"TIME TO FIRST MODEL RESPONSE  {latency_ms} ms")
             self._tested_key = key
             self._save_btn.setEnabled(True)
             return
@@ -1196,9 +1264,19 @@ class ApiKeyOverlay(QWidget):
         if not key_still_matches:
             self._status.setText("The input changed during testing. Test the current key again.")
             self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
+            self._connection_status.setText("CONNECTION  NOT TESTED")
+            self._connection_status.setStyleSheet(
+                f"color: {C.TEXT_DIM}; background: transparent; border: none; font-weight: 700;"
+            )
+            self._latency_status.setText("TIME TO FIRST MODEL RESPONSE  —")
         else:
             self._status.setText(message)
             self._status.setStyleSheet(f"color: {C.RED}; background: transparent;")
+            self._connection_status.setText("CONNECTION  FAILED · SEE DETAILS BELOW")
+            self._connection_status.setStyleSheet(
+                f"color: {C.RED}; background: transparent; border: none; font-weight: 700;"
+            )
+            self._latency_status.setText("TIME TO FIRST MODEL RESPONSE  —")
 
     def _save_key(self):
         key = self._key_input.text().strip()
