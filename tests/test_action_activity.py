@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from core.action_activity import activity_outcome, describe_tool_activity
 
@@ -53,6 +54,42 @@ class ActionActivityTests(unittest.TestCase):
     def test_app_discovery_activity_does_not_claim_launch(self):
         label = describe_tool_activity("open_app", {"action": "list"})
         self.assertIn("Discover installed desktop app launchers", label)
+
+    def test_open_app_only_claims_launch_when_foreground_matches(self):
+        from actions import open_app as app_module
+
+        with (
+            patch.object(app_module, "_SYSTEM", "Windows"),
+            patch.object(app_module, "_OS_LAUNCHERS", {"Windows": lambda _name: True}),
+            patch.object(app_module, "_active_window_description", return_value="Docker Desktop"),
+            patch.object(app_module.time, "sleep"),
+        ):
+            result = app_module.open_app({"app_name": "Docker Desktop"})
+        self.assertIn("foreground window verified", result)
+
+    def test_open_app_does_not_claim_success_for_an_unrelated_foreground(self):
+        from actions import open_app as app_module
+
+        with (
+            patch.object(app_module, "_SYSTEM", "Windows"),
+            patch.object(app_module, "_OS_LAUNCHERS", {"Windows": lambda _name: True}),
+            patch.object(app_module, "_active_window_description", return_value="EDITH Personal Assistant"),
+            patch.object(app_module.time, "sleep"),
+        ):
+            result = app_module.open_app({"app_name": "Docker Desktop"})
+        self.assertIn("not confirmed as the foreground window", result)
+        self.assertNotIn("Opened Docker Desktop;", result)
+
+    def test_app_discovery_does_not_launch_an_application(self):
+        from actions import open_app as app_module
+
+        with (
+            patch.object(app_module, "list_installed_apps", return_value="Installed desktop apps: Postman"),
+            patch.object(app_module, "_OS_LAUNCHERS") as launchers,
+        ):
+            result = app_module.open_app({"action": "list"})
+        self.assertIn("Postman", result)
+        launchers.__getitem__.assert_not_called()
 
     def test_results_are_classified_without_echoing_contents(self):
         self.assertEqual(activity_outcome("Opened WhatsApp."), "ok")
