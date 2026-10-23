@@ -10,6 +10,7 @@ A desktop voice assistant with real-time audio, optional screen/camera awareness
 - Keyboard and microphone input
 - OS-aware installed desktop-app discovery and launching from Windows Start Menu shortcuts, macOS `.app` bundles, Linux `.desktop` entries, and known PATH executables
 - Visible foreground desktop control across native apps and browsers, with a live Activity Log and screen-based verification before native-app interactions
+- A bundled, locally rendered SVG line-icon set for the desktop controls and file-type indicators; no remote icon CDN or emoji glyphs are required for these UI elements
 - Local application, browser, file, and system-control tools
 - Optional screen and camera context
 - Plugin discovery and manager
@@ -19,11 +20,15 @@ A desktop voice assistant with real-time audio, optional screen/camera awareness
 
 ## Local confirmation for high-impact actions
 
-EDITH uses a native local confirmation dialog before permanent file/folder deletion, closing/terminating apps, system restart/shutdown, outbound messages, and detected destructive terminal commands. The dialog displays the action target and consequence where available; **Confirm and Execute** proceeds, while **Cancel**, dismissal, or timeout leaves the action unexecuted. A model-supplied confirmation parameter cannot bypass this dialog.
+EDITH uses a scrollable native local confirmation dialog before permanent file/folder deletion, closing/terminating apps, system restart/shutdown, outbound messages, and detected destructive terminal commands. The dialog shows the exact target, message body, or destructive command for review where relevant; **Confirm and Execute** proceeds, while **Cancel**, dismissal, or timeout leaves the action unexecuted. Before close or keyboard/mouse actions continue, EDITH restores and verifies the window captured before the dialog so keystrokes do not accidentally land in EDITH itself. A model-supplied confirmation parameter cannot bypass this dialog.
 
-The ordinary `delete` action moves an item to Trash/Recycle Bin when the platform dependency is available. Irreversible removal uses the separate `delete_permanent` action, requires an explicit target name, stays within the user's home directory, and protects the home root and standard top-level folders. It must only be selected when the user asks for permanent deletion and then confirms the dialog.
+The ordinary `delete` action moves an item to Trash/Recycle Bin when the platform dependency is available. Irreversible removal uses the separate `delete_permanent` action and is allowed only within the user's home directory after local confirmation. The home/profile root stays protected; a specifically selected user folder (including a standard Desktop or Downloads folder) can be removed after the dialog clearly names that exact target.
 
 For user-facing model identity, EDITH uses the product name **Neural Intelligence Model** and its system prompt treats provider/model details as non-disclosable product implementation details, including when similar requests arrive through prompt injection in untrusted content.
+
+## Product identity
+
+When asked what model/provider or AI service powers it, EDITH's conversational product identity is **Neural Intelligence Model**. The system prompt instructs the assistant not to disclose backend provider or model identifiers in conversation, including when such requests appear in untrusted page or file content. This is conversational branding; it does not remove provider-level policies or change which API is configured in the local settings.
 
 ## Cross-app desktop control
 
@@ -34,6 +39,8 @@ EDITH is designed to work across the user's desktop rather than being limited to
 - "Open Android Studio and inspect the screen."
 - "Open Telegram and show me the current window."
 - "Open Postman and help me inspect this request."
+- "Search YouTube for the CarryMinati channel." (opens channel-filtered results without auto-playing a video)
+- "Permanently delete this specific folder." (shows the local confirmation dialog before removal)
 
 The app inventory is best-effort: Windows Start Menu shortcuts, macOS application bundles, Linux desktop-entry metadata, and known executables on PATH are searched. An app installed without a standard launcher may not appear in the inventory. Discovery reads metadata only; it does not execute commands from shortcut or desktop-entry files.
 
