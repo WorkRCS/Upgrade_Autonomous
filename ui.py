@@ -1007,7 +1007,7 @@ class ApiKeyOverlay(QWidget):
     _test_result = pyqtSignal(bool, str, str, int)
     _local_test_result = pyqtSignal(bool, str, str, int)
 
-    _OW, _OH = 560, 500
+    _OW, _OH = 560, 520
 
     def __init__(self, current_key: str = "", parent=None):
         super().__init__(parent)
@@ -1024,8 +1024,8 @@ class ApiKeyOverlay(QWidget):
         self._local_test_running = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 20)
-        layout.setSpacing(10)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(7)
 
         title = QLabel("LLM & API CONNECTION")
         title.setFont(QFont(FONT_MAIN, 13, QFont.Weight.Bold))
@@ -1043,8 +1043,8 @@ class ApiKeyOverlay(QWidget):
             f"QFrame {{ background: {C.PANEL2}; border: 1px solid {C.BORDER}; border-radius: 7px; }}"
         )
         status_layout = QVBoxLayout(status_card)
-        status_layout.setContentsMargins(10, 8, 10, 8)
-        status_layout.setSpacing(3)
+        status_layout.setContentsMargins(8, 6, 8, 6)
+        status_layout.setSpacing(2)
 
         self._provider_info = QLabel("PROVIDER  Google Gemini Live API · cloud-hosted")
         self._model_info = QLabel("MODEL  models/gemini-2.5-flash-native-audio-preview-12-2025")
@@ -1297,15 +1297,17 @@ class ApiKeyOverlay(QWidget):
             self._local_info.setStyleSheet(
                 f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
             )
-            self._local_latency_status.setText(f"LOCAL MODEL RESPONSE  {latency_ms} ms · {message}")
+            self._local_latency_status.setText(f"LOCAL MODEL RESPONSE  {latency_ms} ms")
             self._local_latency_status.setToolTip(message)
+            self._local_info.setToolTip(message)
         else:
             self._local_info.setText("LOCAL OLLAMA  UNAVAILABLE · SEE DETAILS")
             self._local_info.setStyleSheet(
                 f"color: {C.RED}; background: transparent; border: none; font-weight: 700;"
             )
-            self._local_latency_status.setText("LOCAL MODEL RESPONSE  —")
+            self._local_latency_status.setText(f"LOCAL MODEL RESPONSE  FAILED · {message[:90]}")
             self._local_latency_status.setToolTip(message)
+            self._local_info.setToolTip(message)
 
     def _toggle_reveal(self):
         reveal = self._key_input.echoMode() == QLineEdit.EchoMode.Password
@@ -1453,6 +1455,7 @@ class ApiKeyOverlay(QWidget):
         try:
             data = _read_full_config()
             data["gemini_api_key"] = key
+            data["ollama_base_url"] = self._local_endpoint.text().strip().rstrip("/") or "http://127.0.0.1:11434"
             tmp_path = API_FILE.with_suffix(".json.tmp")
             tmp_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
             tmp_path.replace(API_FILE)
