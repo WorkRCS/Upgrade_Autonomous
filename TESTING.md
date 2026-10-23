@@ -64,7 +64,9 @@ The GitHub Actions Quality checks workflow runs the same three checks on the bra
 
 1. Start EDITH with `python main.py`.
 2. Complete initial setup with your own API key in the local setup window. Keep the key private.
-3. Open the API-key settings, run the provided live connection test, and save/reconnect only if the test succeeds.
+3. Open the API-key settings and verify the panel shows **Google Gemini Live API (cloud-hosted)** and the configured model ID. The local LLM row should say it is not configured for this cloud-only branch.
+4. Run **TEST KEY**. The test should open a Gemini Live session, send a short prompt, wait for the first actual model output, and show the time to first response. A successful handshake without model output must not be reported as a passed test.
+5. Save/reconnect only if the model-response test succeeds.
 4. Confirm that the main EDITH UI opens, text input works, the microphone can be enabled/muted, the interrupt control responds, and the Activity Log remains visible.
 5. Inspect the main controls and file cards: icons should render as line icons rather than emoji placeholders.
 6. Close and restart EDITH normally once to check that the local configuration remains available.
