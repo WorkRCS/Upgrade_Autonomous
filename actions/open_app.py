@@ -1,4 +1,5 @@
 import time
+import os
 import subprocess
 import platform
 import shutil
@@ -92,7 +93,7 @@ def _normalize(raw: str) -> str:
 
     return raw  
 
-def _launch_windows(app_name: str) -> bool:
+def _launch_windows(app_name: str) -> bool | None:
 
     if shutil.which(app_name) or shutil.which(app_name.split(".")[0]):
         try:
@@ -107,9 +108,10 @@ def _launch_windows(app_name: str) -> bool:
         except Exception as e:
             print(f"[open_app] subprocess failed: {e}")
 
+    # Open OS URI handlers without passing model/user text through a shell.
     if ":" in app_name:
         try:
-            subprocess.Popen(f"start {app_name}", shell=True)
+            os.startfile(app_name)
             time.sleep(1.0)
             return True
         except Exception:
@@ -124,14 +126,15 @@ def _launch_windows(app_name: str) -> bool:
         time.sleep(0.9)
         pyautogui.press("enter")
         time.sleep(2.5)
-        return True
+        # Keyboard search requested the launch, but does not prove the app opened.
+        return None
     except Exception as e:
         print(f"[open_app] Start Menu search failed: {e}")
 
     return False
 
 
-def _launch_macos(app_name: str) -> bool:
+def _launch_macos(app_name: str) -> bool | None:
 
     try:
         result = subprocess.run(
@@ -176,7 +179,8 @@ def _launch_macos(app_name: str) -> bool:
         time.sleep(0.8)
         pyautogui.press("enter")
         time.sleep(1.5)
-        return True
+        # Spotlight search is visible, but launching cannot be verified here.
+        return None
     except Exception as e:
         print(f"[open_app] Spotlight failed: {e}")
 
@@ -188,7 +192,7 @@ _LINUX_TERMINAL_FALLBACKS = [
     "xterm", "lxterminal", "mate-terminal", "tilix", "alacritty", "kitty",
 ]
 
-def _launch_linux(app_name: str) -> bool:
+def _launch_linux(app_name: str) -> bool | None:
 
     # terminal emulators: try common ones in order
     if app_name in ("x-terminal-emulator", "gnome-terminal", "terminal"):
@@ -220,11 +224,12 @@ def _launch_linux(app_name: str) -> bool:
             pass
 
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["xdg-open", app_name],
             capture_output=True, timeout=5
         )
-        return True
+        if result.returncode == 0:
+            return True
     except Exception:
         pass
 
@@ -274,14 +279,26 @@ def open_app(
         player.write_log(f"[open_app] {app_name}")
 
     try:
-        if launcher(normalized):
+        status = launcher(normalized)
+        if status is True:
             return f"Opened {app_name}."
+        if status is None:
+            return (
+                f"Launch request submitted for {app_name}, but I could not verify that it opened. "
+                "Inspect the visible screen before interacting further."
+            )
         if normalized.lower() != app_name.lower():
-            if launcher(app_name):
+            status = launcher(app_name)
+            if status is True:
                 return f"Opened {app_name}."
+            if status is None:
+                return (
+                    f"Launch request submitted for {app_name}, but I could not verify that it opened. "
+                    "Inspect the visible screen before interacting further."
+                )
         return (
             f"Could not confirm that {app_name} launched. "
-            f"It may still be loading, or it might not be installed."
+            "It may not be installed, or the operating system may not have a matching launcher."
         )
     except Exception as e:
         print(f"[open_app] Error: {e}")
