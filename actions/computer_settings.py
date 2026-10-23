@@ -657,25 +657,25 @@ def computer_settings(
                 f"Please confirm by calling again with confirmed=yes."
             )
 
-    if action in {"close_app", "close_window"}:
-        target = str(params.get("_confirmed_window_target") or "").strip()
-        if not target:
-            return "No confirmed app/window target was supplied; nothing was closed."
+    restore_target = str(params.get("_confirmed_window_target") or "").strip()
+    if action in {"close_app", "close_window"} and not restore_target:
+        return "No confirmed app/window target was supplied; nothing was closed."
+    if restore_target and action not in {"restart", "shutdown"}:
         try:
             from actions.computer_control import _focus_window
             from actions.open_app import _active_window_description
 
-            focus_result = _focus_window(target)
+            focus_result = _focus_window(restore_target)
             if not focus_result.startswith("Focused window: "):
-                return f"Target window could not be focused; nothing was closed. {focus_result}"
+                return f"Target window could not be focused; no settings action executed. {focus_result}"
             current = _active_window_description()
             if not current or not (
-                target.casefold() in current.casefold()
-                or current.casefold() in target.casefold()
+                restore_target.casefold() in current.casefold()
+                or current.casefold() in restore_target.casefold()
             ):
-                return "The requested target is not verified as the active window; nothing was closed."
+                return "The confirmed target is not verified as active; no settings action executed."
         except Exception as exc:
-            return f"Target window verification failed; nothing was closed ({type(exc).__name__})."
+            return f"Target window verification failed; no settings action executed ({type(exc).__name__})."
 
     if action == "volume_set":
         try:
