@@ -31,11 +31,11 @@ For user-facing model identity, EDITH uses the product name **Neural Intelligenc
 
 ## LLM connection status and response speed
 
-The API settings panel identifies the active provider as **Google Gemini Live API (cloud-hosted)** and shows the exact Live model ID used by the app. The chat runtime in this branch does not automatically switch to a local model.
+The API settings panel shows two distinct paths. The real-time voice conversation uses **Google Gemini Live API (cloud-hosted)** and its exact Live model ID. Separately, EDITH's internal planning/code-agent tools use the already integrated `core/llm_client.py` adapter, which reads `llm_provider`, `llm_url`, and `llm_model` from `config/api_keys.json` (default provider: Ollama; OpenAI-compatible providers are also supported).
 
 The **TEST KEY** action opens a Live session, sends a short test prompt, waits for the first real model output, and reports the elapsed time to first response. This checks more than whether a connection handshake succeeds; it does not guarantee the next conversation's latency, which still depends on the network, API service, audio input, and requested task.
 
-The optional **TEST LOCAL** control checks a local **Ollama** server at a loopback URL. It lists installed local models and runs a small inference request on one model, then reports whether a real response was generated and how long it took. This local check is diagnostic only: even if Ollama is reachable, EDITH's active chat provider remains Gemini until a local-provider adapter is implemented. For privacy, remote endpoints are rejected by the local check. The assistant prompt prioritizes concise, direct replies and immediate tool use for straightforward tasks while preserving safety confirmations and target verification.
+When the settings panel opens, its local-LLM section reads the actual configured provider, endpoint, and model from `core.llm_client`, then checks whether the endpoint is reachable and whether the configured model appears available. **TEST LOCAL LLM** sends a real short inference request through that same `call_llm` client and reports its response time. These checks do not replace or overwrite the existing local-LLM configuration. The assistant prompt prioritizes concise, direct replies and immediate tool use for straightforward tasks while preserving safety confirmations and target verification.
 
 ## Product identity
 
