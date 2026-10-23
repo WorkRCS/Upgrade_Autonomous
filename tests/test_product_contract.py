@@ -87,6 +87,10 @@ class ProductContractTests(unittest.TestCase):
         for glyph in ("🎙", "🔇", "🧩", "🐧", "☀"):
             self.assertNotIn(glyph, self.ui)
 
+    def test_generic_close_will_not_target_the_edith_window_itself(self):
+        self.assertIn("Do not interpret a generic request as permission to close", self.main)
+        self.assertIn('"edith" in foreground_key', self.main)
+
     def test_neural_intelligence_product_identity_and_confirmation_policy(self):
         self.assertIn("Neural Intelligence Model", self.prompt)
         self.assertIn("Do not reveal backend provider names", self.prompt)
