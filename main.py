@@ -287,7 +287,8 @@ TOOL_DECLARATIONS = [
             "type": "OBJECT",
             "properties": {
                 "angle": {"type": "STRING", "description": "'screen' to capture display, 'camera' for webcam. Default: 'screen'"},
-                "text":  {"type": "STRING", "description": "The question or instruction about the captured image"}
+                "text":  {"type": "STRING", "description": "The question or instruction about the captured image"},
+                "force": {"type": "BOOLEAN", "description": "Bypass only the duplicate-call cooldown for explicit post-action verification; never bypass an image request already in progress"}
             },
             "required": ["text"]
         }
@@ -972,7 +973,10 @@ class JarvisLive:
                 import time as _t_mod
                 _now = _t_mod.monotonic()
                 _cooldown = 4.0  # seconds — covers echo window after speaking ends
-                if self._vision_busy or (_now - self._vision_last_time) < _cooldown:
+                _force_verify = bool(args.get("force", False))
+                if self._vision_busy or (
+                    (_now - self._vision_last_time) < _cooldown and not _force_verify
+                ):
                     _wait = max(0, _cooldown - (_now - self._vision_last_time))
                     print(f"[Vision] ⏳ Cooldown active ({_wait:.1f}s remaining) — ignoring duplicate call")
                     result = "Vision is still processing the previous request. I will not call this again."
