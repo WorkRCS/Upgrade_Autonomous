@@ -20,8 +20,8 @@ _DESTRUCTIVE_TERMINAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("forced process termination", re.compile(r"\b(?:taskkill\b[^\r\n]{0,100}/f\b|kill\s+-9\b|stop-process\b[^\r\n]{0,100}-force\b)", re.I)),
     ("Docker or container deletion", re.compile(r"\b(?:docker|podman)\s+(?:rm|rmi|volume\s+rm|system\s+prune)\b", re.I)),
     ("cluster resource deletion", re.compile(r"\bkubectl\s+delete\b|\bterraform\s+destroy\b", re.I)),
-    ("database or collection deletion", re.compile(r"\b(?:drop|truncate)\s+(?:database|table|collection|schema)\b|\bdb\.(?:dropDatabase|dropCollection)\s*\(", re.I)),
-    ("application uninstall", re.compile(r"\b(?:winget\s+uninstall|choco\s+uninstall|brew\s+uninstall|adb\s+uninstall|apt(?:-get)?\s+purge)\b", re.I)),
+    ("database or collection deletion", re.compile(r"\b(?:delete\s+from|drop\s+(?:database|table|collection|schema)|truncate\s+(?:table|collection))\b|\bdb\.[\w$]+\.(?:deleteMany|drop|remove)\s*\(|\bdb\.(?:dropDatabase|dropCollection)\s*\(", re.I)),
+    ("application uninstall", re.compile(r"\b(?:winget\s+uninstall|choco\s+uninstall|brew\s+uninstall|adb\s+uninstall|apt(?:-get)?\s+(?:remove|purge))\b", re.I)),
     ("force-push or destructive git cleanup", re.compile(r"\bgit\s+(?:push\b[^\r\n]{0,100}--force|clean\b[^\r\n]{0,50}-[a-z]*f)", re.I)),
     ("package publication", re.compile(r"\b(?:npm|pnpm|yarn)\s+publish\b", re.I)),
 )
@@ -97,9 +97,13 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
     if name == "send_message":
         platform = _text(p.get("platform") or "messaging app", 35)
         receiver = _text(p.get("receiver") or "unspecified recipient", 65)
+        body = str(p.get("message_text") or p.get("text") or "").strip()
+        if len(body) > 1200:
+            body = body[:1199].rstrip() + "…"
         return (
-            f"Send a message using {platform} to '{receiver}'? The message body is hidden here. "
-            "Review the message in the app before approving if it contains sensitive information."
+            f"Send a message using {platform} to '{receiver}'?\n\n"
+            f"Message to review:\n{body or '[No message body provided]'}\n\n"
+            "This preview is shown only in the local confirmation dialog, not in the Activity Log."
         )
 
     if name == "desktop_control" and action in {"clean", "delete", "remove"}:
