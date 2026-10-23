@@ -51,6 +51,14 @@ class ActionActivityTests(unittest.TestCase):
         result = filter_app_names(["", "Postman", "Docker", "Android Studio"], limit=2)
         self.assertEqual(result, ["Android Studio", "Docker"])
 
+    def test_app_search_checks_full_inventory_before_display_limit(self):
+        from actions.open_app import filter_app_names
+
+        names = [f"Utility {index:03d}" for index in range(150)]
+        names.append("Postman")
+        result = filter_app_names(names, query="postman", limit=3000)
+        self.assertEqual(result, ["Postman"])
+
     def test_app_discovery_activity_does_not_claim_launch(self):
         label = describe_tool_activity("open_app", {"action": "list"})
         self.assertIn("Discover installed desktop app launchers", label)
