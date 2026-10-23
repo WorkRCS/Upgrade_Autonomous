@@ -10,6 +10,8 @@ A desktop voice assistant with real-time audio, optional screen/camera awareness
 - Keyboard and microphone input
 - OS-aware installed desktop-app discovery and launching from Windows Start Menu shortcuts, macOS `.app` bundles, Linux `.desktop` entries, and known PATH executables
 - Visible foreground desktop control across native apps and browsers, with a live Activity Log and screen-based verification before native-app interactions
+- Bundled local SVG icons for core controls and file types (no remote icon downloads)
+- YouTube creator/channel-only search that opens filtered channel results without auto-playing a video
 - A bundled, locally rendered SVG line-icon set for the desktop controls and file-type indicators; no remote icon CDN or emoji glyphs are required for these UI elements
 - Local application, browser, file, and system-control tools
 - Optional screen and camera context
