@@ -73,6 +73,7 @@ from actions.background_monitor import (
 from actions.web_search        import _news as _fetch_news_sync
 from memory.config_manager     import get_brief_enabled
 from core.plugin_loader        import discover_plugins
+from core.action_activity      import describe_tool_activity, activity_outcome
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -152,9 +153,12 @@ TOOL_DECLARATIONS = [
     {
         "name": "open_app",
         "description": (
-            "Opens any application on the computer. "
-            "Use this whenever the user asks to open, launch, or start any app, "
-            "website, or program. Always call this tool — never just say you opened it."
+            "Launch any locally installed desktop application, not only a fixed list. "
+            "Examples include WhatsApp, Telegram, Postman, MongoDB Compass, Android Studio, "
+            "Docker Desktop, IDEs, database tools, terminals, media tools, and other installed apps. "
+            "Use the requested app name; the OS-native app search is the fallback for unknown names. "
+            "After launch, use computer_control and screen_process to interact with the visible desktop app. "
+            "Do not claim the app launched unless the tool reports success."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -303,13 +307,12 @@ TOOL_DECLARATIONS = [
     {
         "name": "browser_control",
         "description": (
-            "Controls any web browser. Use for: opening websites, searching the web, "
-            "clicking elements, filling forms, scrolling, screenshots, navigation, any web-based task. "
-            "Simple open/search requests launch the user's own browser normally (their real profile "
-            "and logged-in accounts); interactive actions (click, type, fill_form...) attach an "
-            "automation browser. "
-            "Always pass the 'browser' parameter when the user specifies a browser (e.g. 'open in Edge', "
-            "'use Firefox', 'open Chrome'). Multiple browsers can run simultaneously."
+            "Controls websites and browser tabs: navigation, search, click, type, forms, scroll, and screenshots. "
+            "Use this for web tasks. For a native desktop application such as WhatsApp, Telegram, Postman, "
+            "MongoDB Compass, Android Studio, or Docker Desktop, first call open_app, then use computer_control "
+            "for visible GUI actions and screen_process to inspect the current screen. "
+            "Simple navigation opens the user's browser; interactive browser actions use the automation session. "
+            "Always honor an explicitly requested browser."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -399,7 +402,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "computer_control",
-        "description": "Direct computer control: type, click, hotkeys, scroll, move mouse, screenshots, find elements on screen.",
+        "description": "Controls the visible OS desktop across installed GUI apps, not just the browser. Use after open_app for native apps (messaging, database, API, IDE, container, design, and other software). Supports clicks, typing, shortcuts, window focus, screenshots, and visual element search. Actions affect the real foreground desktop; inspect the screen and proceed step by step. Never assume an app action succeeded without tool feedback.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
@@ -896,6 +899,9 @@ class JarvisLive:
         print(f"[Assistant] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
+        activity_label = describe_tool_activity(name, args)
+        self.ui.write_log(f"ACTIVITY ▶ {activity_label}")
+
         if name == "save_memory":
             category = args.get("category", "notes")
             key      = args.get("key", "")
@@ -905,6 +911,7 @@ class JarvisLive:
                 print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
+            self.ui.write_log(f"ACTIVITY ✓ {activity_label}")
             return types.FunctionResponse(
                 id=fc.id, name=name,
                 response={"result": "ok", "silent": True}
@@ -1078,6 +1085,13 @@ class JarvisLive:
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 
+        outcome = activity_outcome(result)
+        if outcome == "error":
+            self.ui.write_log(f"ACTIVITY ERROR: {activity_label}")
+        elif outcome == "warning":
+            self.ui.write_log(f"ACTIVITY NOTE: {activity_label}")
+        else:
+            self.ui.write_log(f"ACTIVITY ✓ {activity_label}")
         print(f"[Assistant] 📤 {name} → {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
