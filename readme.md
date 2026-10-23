@@ -5,7 +5,8 @@ A desktop voice assistant with real-time audio, optional screen/camera awareness
 ## Features
 
 - Real-time voice conversation using Gemini Live API
-- Feminine-sounding voice preset (Kore), with a clear, confident delivery prompt
+- Female voice preset (Kore) and male voice preset (Orus), selectable by voice command or the Controls panel
+- API-key settings with real Gemini Live connection testing before save; saving triggers session reconnection
 - Keyboard and microphone input
 - Local application, browser, file, and system-control tools
 - Optional screen and camera context
@@ -80,7 +81,7 @@ config/                  # Local settings and generated app resources
 
 - **Python runtime missing:** install Python 3.11 or 3.12 and confirm the launcher detects it.
 - **Microphone unavailable:** check operating-system microphone permissions and select a working input device.
-- **API connection or key error:** verify the key, internet connection, and API availability.
+- **API connection or key error:** open Controls → Gemini API Key, test the key against Gemini Live, then save and reconnect.
 - **Missing optional module:** activate the virtual environment, then install the missing supported dependency.
 - **Hardware metrics show N/A:** GPU and temperature metrics depend on the hardware, driver, and platform.
 
