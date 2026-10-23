@@ -6,7 +6,7 @@ from core.icons import icon_names, svg_markup
 class BundledIconTests(unittest.TestCase):
     def test_icon_collection_contains_core_controls_and_file_types(self):
         names = set(icon_names())
-        for required in ("mic", "mic-off", "settings", "stop-circle", "puzzle", "file-image", "file-code"):
+        for required in ("mic", "mic-off", "settings", "stop-circle", "puzzle", "file-image", "file-code", "sun", "maximize", "alert-triangle"):
             with self.subTest(icon=required):
                 self.assertIn(required, names)
 
