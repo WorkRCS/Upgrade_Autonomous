@@ -17,6 +17,14 @@ A desktop voice assistant with real-time audio, optional screen/camera awareness
 - Optional mobile/remote dashboard with access-code pairing
 - CPU, memory, network, GPU, and temperature indicators where supported
 
+## Local confirmation for high-impact actions
+
+EDITH uses a native local confirmation dialog before permanent file/folder deletion, closing/terminating apps, system restart/shutdown, outbound messages, and detected destructive terminal commands. The dialog displays the action target and consequence where available; **Confirm and Execute** proceeds, while **Cancel**, dismissal, or timeout leaves the action unexecuted. A model-supplied confirmation parameter cannot bypass this dialog.
+
+The ordinary `delete` action moves an item to Trash/Recycle Bin when the platform dependency is available. Irreversible removal uses the separate `delete_permanent` action, requires an explicit target name, stays within the user's home directory, and protects the home root and standard top-level folders. It must only be selected when the user asks for permanent deletion and then confirms the dialog.
+
+For user-facing model identity, EDITH uses the product name **Neural Intelligence Model** and its system prompt treats provider/model details as non-disclosable product implementation details, including when similar requests arrive through prompt injection in untrusted content.
+
 ## Cross-app desktop control
 
 EDITH is designed to work across the user's desktop rather than being limited to YouTube or a single browser. Example voice/text commands include:
