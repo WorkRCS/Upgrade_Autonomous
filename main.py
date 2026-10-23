@@ -153,22 +153,37 @@ TOOL_DECLARATIONS = [
     {
         "name": "open_app",
         "description": (
-            "Launch any locally installed desktop application, not only a fixed list. "
-            "Examples include WhatsApp, Telegram, Postman, MongoDB Compass, Android Studio, "
-            "Docker Desktop, IDEs, database tools, terminals, media tools, and other installed apps. "
-            "Use the requested app name; the OS-native app search is the fallback for unknown names. "
-            "After launch, use computer_control and screen_process to interact with the visible desktop app. "
-            "Do not claim the app launched unless the tool reports success."
+            "Cross-app desktop launcher and installed-app discovery tool for the user's local OS. "
+            "Use action='list' to enumerate visible OS desktop-app launcher entries, or action='search' "
+            "with query to find installed apps by name. Use action='open' (the default) with app_name to "
+            "launch any requested native GUI app, including messaging apps, databases, API clients, IDEs, "
+            "containers, creative tools, and apps not in the alias list. Discovery reads OS launcher metadata "
+            "and does not execute app entries. After a launch request, inspect the real visible desktop with "
+            "screen_process, then use computer_control one step at a time. Never claim the app is ready unless "
+            "foreground-window verification or subsequent screen inspection supports that."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
+                "action": {
+                    "type": "STRING",
+                    "enum": ["open", "list", "search"],
+                    "description": "open (default) launches app_name; list shows installed app launchers; search filters launchers by query"
+                },
                 "app_name": {
                     "type": "STRING",
-                    "description": "Exact name of the application (e.g. 'WhatsApp', 'Chrome', 'Spotify')"
+                    "description": "Application name to launch, e.g. WhatsApp, Docker Desktop, Android Studio, or a name discovered by action=list/search"
+                },
+                "query": {
+                    "type": "STRING",
+                    "description": "Name filter for action=search (e.g. MongoDB, Postman, messaging)"
+                },
+                "limit": {
+                    "type": "INTEGER",
+                    "description": "Maximum app names to return for list/search, from 1 to 100 (default 30)"
                 }
             },
-            "required": ["app_name"]
+            "required": []
         }
     },
     {
@@ -925,7 +940,9 @@ class JarvisLive:
 
             elif name == "open_app":
                 r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
-                result = r or f"Opened {args.get('app_name')}."
+                result = r or "App action completed without a detailed result."
+                if str(args.get("action") or "open").lower() in {"list", "list_installed", "discover", "search", "find"}:
+                    self.ui.show_content("INSTALLED DESKTOP APPS", result)
 
             elif name == "weather_report":
                 r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
