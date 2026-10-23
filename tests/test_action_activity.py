@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from core.action_activity import activity_outcome, describe_tool_activity
@@ -95,6 +97,25 @@ class ActionActivityTests(unittest.TestCase):
             result = app_module.open_app({"app_name": "Docker Desktop"})
         self.assertIn("not confirmed as the foreground window", result)
         self.assertNotIn("Opened Docker Desktop;", result)
+
+    def test_permanent_delete_removes_one_named_file_inside_home(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from actions.file_controller import delete_file_permanently
+
+        with tempfile.TemporaryDirectory(dir=str(Path.home())) as tmp:
+            target = Path(tmp) / "target.txt"
+            target.write_text("remove me", encoding="utf-8")
+            result = delete_file_permanently(tmp, name="target.txt")
+            self.assertIn("Permanently deleted", result)
+            self.assertFalse(target.exists())
+
+    def test_permanent_delete_refuses_standard_home_roots(self):
+        from actions.file_controller import delete_file_permanently
+
+        result = delete_file_permanently(str(Path.home()), name="")
+        self.assertTrue("Protected directory" in result or "Access denied" in result)
 
     def test_app_discovery_does_not_launch_an_application(self):
         from actions import open_app as app_module
