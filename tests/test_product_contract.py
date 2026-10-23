@@ -79,6 +79,14 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn('force=true', self.prompt)
         self.assertIn("computer_control affects the actual foreground desktop", self.prompt)
 
+    def test_ui_uses_bundled_svg_controls_instead_of_emoji(self):
+        self.assertIn("from core.icons import svg_icon", self.ui)
+        self.assertIn('svg_icon("mic"', self.ui)
+        self.assertIn('svg_icon("settings"', self.ui)
+        self.assertNotIn("Segoe UI Emoji", self.ui)
+        for glyph in ("🎙", "🔇", "🧩", "🐧", "☀"):
+            self.assertNotIn(glyph, self.ui)
+
     def test_neural_intelligence_product_identity_and_confirmation_policy(self):
         self.assertIn("Neural Intelligence Model", self.prompt)
         self.assertIn("Do not reveal backend provider names", self.prompt)
