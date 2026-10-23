@@ -479,6 +479,21 @@ def computer_control(
     if not action:
         return "No action specified for computer_control."
 
+    # After the local confirmation dialog closes, restore and verify the same
+    # foreground target captured by the dispatcher before any key/mouse input.
+    restore_target = str(params.get("_confirmed_window_target") or "").strip()
+    if restore_target:
+        focus_result = _focus_window(restore_target)
+        if not focus_result.startswith("Focused window: "):
+            return f"Target window not focused; no computer action executed. {focus_result}"
+        try:
+            from actions.open_app import _active_window_description
+            current_title = _active_window_description()
+        except Exception:
+            current_title = ""
+        if not current_title or restore_target.casefold() not in current_title.casefold():
+            return "Target window could not be verified after confirmation; no computer action executed."
+
     if player:
         player.write_log(f"[Computer] {action}")
 
