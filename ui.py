@@ -1008,7 +1008,7 @@ class ApiKeyOverlay(QWidget):
     _local_connection_result = pyqtSignal(bool, str, str, str, str)
     _local_test_result = pyqtSignal(bool, str, str, int)
 
-    _OW, _OH = 560, 520
+    _OW, _OH = 560, 580
 
     def __init__(self, current_key: str = "", parent=None):
         super().__init__(parent)
