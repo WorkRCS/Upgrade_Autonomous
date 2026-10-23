@@ -199,7 +199,7 @@ def create_folders(path: str, names: list[str] | None = None) -> str:
                 or folder_name in {".", ".."}
                 or "/" in folder_name
                 or "\\" in folder_name
-                or "\\x00" in folder_name
+                or any(ord(char) == 0 for char in folder_name)
                 or Path(folder_name).is_absolute()
             ):
                 errors.append(f"Rejected invalid folder name: {folder_name!r}")
