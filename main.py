@@ -74,6 +74,7 @@ from actions.web_search        import _news as _fetch_news_sync
 from memory.config_manager     import get_brief_enabled
 from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
+from core.action_guard         import confirmation_requirement
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -264,8 +265,8 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "play | summarize | get_info | trending (default: play)"},
-                "query":  {"type": "STRING", "description": "Search query for play action"},
+                "action": {"type": "STRING", "enum": ["play", "channel", "summarize", "get_info", "trending"], "description": "play | channel | summarize | get_info | trending. Use channel for a channel search; it must not play a video."},
+                "query":  {"type": "STRING", "description": "Video search query for play, or channel name for channel"},
                 "save":   {"type": "BOOLEAN", "description": "Save summary to Notepad (summarize only)"},
                 "region": {"type": "STRING", "description": "Country code for trending e.g. TR, US"},
                 "url":    {"type": "STRING", "description": "Video URL for get_info action"},
@@ -353,11 +354,11 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "file_controller",
-        "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, disk usage.",
+        "description": "Manages files and folders: list, create, delete (moves to Trash/Recycle Bin), delete_permanent (irreversible, requires a local confirmation dialog), move, copy, rename, read, write, find, disk usage.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
+                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | delete_permanent | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
                 "path":        {"type": "STRING", "description": "File/folder path or shortcut: desktop, downloads, documents, home"},
                 "destination": {"type": "STRING", "description": "Destination path for move/copy"},
                 "new_name":    {"type": "STRING", "description": "New name for rename"},
@@ -916,6 +917,37 @@ class JarvisLive:
         print(f"[Assistant] 🔧 {name} — {activity_label}")
         self.ui.set_state("THINKING")
         self.ui.write_log(f"ACTIVITY ▶ {activity_label}")
+
+        # A model-provided "confirmed" field never grants approval. The user must
+        # approve the exact sensitive operation in EDITH's local UI on this turn.
+        confirmation_reason = confirmation_requirement(name, args)
+        if confirmation_reason:
+            self.ui.write_log(f"ACTIVITY CONFIRMATION REQUIRED: {activity_label}")
+            try:
+                approved = await asyncio.to_thread(
+                    self.ui.confirm_sensitive_action,
+                    "Confirm sensitive action",
+                    confirmation_reason,
+                )
+            except Exception as exc:
+                approved = False
+                print(f"[Confirmation] Could not obtain user approval: {type(exc).__name__}")
+
+            if not approved:
+                result = "Cancelled by user; no action was executed."
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label}")
+                return types.FunctionResponse(
+                    id=fc.id, name=name,
+                    response={"result": result},
+                )
+
+            self.ui.write_log(f"ACTIVITY CONFIRMED: {activity_label}")
+            # computer_settings has its own guard for power actions; set this
+            # internal flag only after the real UI dialog was approved.
+            if name == "computer_settings" and str(args.get("action") or "").lower().replace("-", "_") in {"restart", "shutdown"}:
+                args["confirmed"] = "yes"
 
         if name == "save_memory":
             category = args.get("category", "notes")
