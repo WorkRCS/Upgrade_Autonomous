@@ -34,6 +34,17 @@ class ConfirmationRequirementTests(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertIsNotNone(confirmation_requirement("computer_settings", {"action": action}))
 
+    def test_close_confirmation_identifies_explicit_app_target(self):
+        reason = confirmation_requirement(
+            "computer_settings",
+            {"action": "close_app", "description": "terminate Docker Desktop"},
+        )
+        self.assertIn("Docker Desktop", reason)
+
+    def test_generic_close_description_needs_active_window_resolution(self):
+        from core.action_guard import _explicit_window_target
+        self.assertEqual(_explicit_window_target({"description": "terminate the active application"}), "")
+
     def test_message_confirmation_shows_exact_body_locally_for_review(self):
         secret = "Please review the attached file"
         reason = confirmation_requirement(
