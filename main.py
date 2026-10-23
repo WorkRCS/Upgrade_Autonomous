@@ -564,7 +564,7 @@ class JarvisLive:
 
     def __init__(self, ui: JarvisUI):
         self.ui             = ui
-        self._asst_name     = "JARVIS"   # updated each session from config
+        self._asst_name     = "AI Assistant"
         self.session              = None
         self.audio_in_queue       = None
         self.out_queue            = None
@@ -699,11 +699,8 @@ class JarvisLive:
         # Load customization from config
         try:
             _cfg = json.loads(open(API_CONFIG_PATH, encoding="utf-8").read())
-            _raw_asst_name = (_cfg.get("assistant_name") or "").strip()
-            if _raw_asst_name.upper() in {"JARVIS", "J.A.R.V.I.S", "EDITH", "AI ASSISTANT"}:
-                self._asst_name = "AI Assistant"
-            else:
-                self._asst_name = _raw_asst_name or "AI Assistant"
+            # Ignore any old/custom display name: product identity stays neutral.
+            self._asst_name = "AI Assistant"
             _user_name = (_cfg.get("user_name") or "").strip()
         except Exception:
             self._asst_name = "AI Assistant"
