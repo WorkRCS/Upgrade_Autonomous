@@ -47,7 +47,9 @@ def _target_path(params: dict) -> str:
     name = _text(params.get("name") or "", 90)
     if name:
         # Avoid inventing an absolute path when the original tool uses shortcuts.
-        return f"{path.rstrip('/\\')}/{name.lstrip('/\\')}"
+        clean_path = path.rstrip("/\\")
+        clean_name = name.lstrip("/\\")
+        return f"{clean_path}/{clean_name}"
     return path
 
 
