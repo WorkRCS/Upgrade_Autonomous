@@ -1,0 +1,120 @@
+"""Action-level confirmation policy for destructive or externally visible operations.
+
+This module never blocks an action on its own; it explains when EDITH must obtain
+an explicit local confirmation before passing the request to an action handler.
+"""
+from __future__ import annotations
+
+import re
+from pathlib import PurePath
+from urllib.parse import urlsplit
+
+
+_DESTRUCTIVE_TERMINAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("recursive file deletion", re.compile(r"\brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\b", re.I)),
+    ("Windows permanent file deletion", re.compile(r"\b(?:del|erase)\b[^\r\n]{0,100}/(?:f|q|s)\b", re.I)),
+    ("recursive directory deletion", re.compile(r"\b(?:rmdir|rd)\s+/s\b", re.I)),
+    ("PowerShell recursive deletion", re.compile(r"\bremove-item\b[^\r\n]{0,160}(?:-recurse|-force)", re.I)),
+    ("disk formatting or wiping", re.compile(r"\b(?:format\s+[a-z]:|diskpart\b|clean\s+all\b|wipefs\b)", re.I)),
+    ("system shutdown or restart", re.compile(r"\b(?:shutdown(?:\.exe)?|restart-computer|stop-computer)\b", re.I)),
+    ("forced process termination", re.compile(r"\b(?:taskkill\b[^\r\n]{0,100}/f\b|kill\s+-9\b|stop-process\b[^\r\n]{0,100}-force\b)", re.I)),
+    ("Docker or container deletion", re.compile(r"\b(?:docker|podman)\s+(?:rm|rmi|volume\s+rm|system\s+prune)\b", re.I)),
+    ("cluster resource deletion", re.compile(r"\bkubectl\s+delete\b|\bterraform\s+destroy\b", re.I)),
+    ("database or collection deletion", re.compile(r"\b(?:drop|truncate)\s+(?:database|table|collection|schema)\b|\bdb\.(?:dropDatabase|dropCollection)\s*\(", re.I)),
+    ("application uninstall", re.compile(r"\b(?:winget\s+uninstall|choco\s+uninstall|brew\s+uninstall|adb\s+uninstall|apt(?:-get)?\s+purge)\b", re.I)),
+    ("force-push or destructive git cleanup", re.compile(r"\bgit\s+(?:push\b[^\r\n]{0,100}--force|clean\b[^\r\n]{0,50}-[a-z]*f)", re.I)),
+    ("package publication", re.compile(r"\b(?:npm|pnpm|yarn)\s+publish\b", re.I)),
+)
+
+_DESTRUCTIVE_TARGET = re.compile(
+    r"\b(delete|delete permanently|permanently delete|remove|uninstall|terminate|kill|"
+    r"drop database|drop table|truncate|format|factory reset|wipe|erase|revoke access|"
+    r"delete account|close account|send|submit|publish|deploy)\b",
+    re.I,
+)
+
+
+def _text(value: object, limit: int = 140) -> str:
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    return text
+
+
+def _target_path(params: dict) -> str:
+    path = _text(params.get("path") or "unspecified location", 90)
+    name = _text(params.get("name") or "", 90)
+    if name:
+        # Avoid inventing an absolute path when the original tool uses shortcuts.
+        return f"{path.rstrip('/\\')}/{name.lstrip('/\\')}"
+    return path
+
+
+def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> str | None:
+    """Return a user-facing confirmation description, or None for ordinary actions.
+
+    A positive model/tool argument such as confirmed=yes is intentionally ignored.
+    The dispatcher must obtain approval from the user's local UI before executing.
+    """
+    p = parameters or {}
+    name = _text(tool_name, 50).lower()
+    action = _text(p.get("action") or "", 50).lower().replace("-", "_").replace(" ", "_")
+
+    if name == "file_controller" and action in {"delete", "delete_permanent", "permanent_delete"}:
+        target = _target_path(p)
+        if action in {"delete_permanent", "permanent_delete"}:
+            return (
+                f"PERMANENTLY delete '{target}' from disk? This cannot be undone. "
+                "Confirm only if this is the exact file or folder you intend to remove."
+            )
+        return (
+            f"Move '{target}' to the system Trash/Recycle Bin? Confirm only if this is the exact target."
+        )
+
+    if name == "computer_settings" and action in {"restart", "shutdown", "close_app", "close_window"}:
+        if action == "restart":
+            return "Restart this computer? Unsaved work may be lost. Confirm before restarting."
+        if action == "shutdown":
+            return "Shut down this computer? Unsaved work may be lost. Confirm before powering off."
+        if action == "close_app":
+            return "Close/terminate the active application? Unsaved work may be lost. Confirm before closing it."
+        return "Close the active window? Unsaved work may be lost. Confirm before closing it."
+
+    if name == "send_message":
+        platform = _text(p.get("platform") or "messaging app", 35)
+        receiver = _text(p.get("receiver") or "unspecified recipient", 65)
+        return (
+            f"Send a message using {platform} to '{receiver}'? The message body is hidden here. "
+            "Review the message in the app before approving if it contains sensitive information."
+        )
+
+    if name == "desktop_control" and action in {"clean", "delete", "remove"}:
+        target = _text(p.get("path") or p.get("task") or "desktop items", 110)
+        return f"Run the desktop cleanup/removal operation for '{target}'? Confirm before items are moved or removed."
+
+    if name in {"browser_control", "computer_control"}:
+        if action in {"click", "smart_click", "screen_click", "right_click", "double_click"}:
+            target = _text(p.get("description") or p.get("text") or p.get("selector") or "", 120)
+            if target and _DESTRUCTIVE_TARGET.search(target):
+                return (
+                    f"Activate this potentially destructive control: '{target}'? "
+                    "Confirm only after the current screen shows the intended target."
+                )
+
+        if action in {"type", "smart_type", "paste"}:
+            command_text = str(p.get("text") or "")
+            for label, pattern in _DESTRUCTIVE_TERMINAL_PATTERNS:
+                if pattern.search(command_text):
+                    return (
+                        f"The text to enter matches a high-impact operation ({label}). "
+                        "Confirm before entering it into the active application, and verify the target first."
+                    )
+
+    if name == "code_helper" and action in {"run", "execute"}:
+        return "Run the requested code in the local environment? Review the target project and possible side effects before approving."
+
+    return None
+
+
+__all__ = ["confirmation_requirement"]
