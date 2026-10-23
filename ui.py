@@ -1195,7 +1195,7 @@ class ApiKeyOverlay(QWidget):
 
         provider_label = {
             "ollama": "Ollama",
-            "openai": "OpenAI-compatible local server",
+            "openai": "OpenAI-compatible server",
         }.get(self._local_provider, self._local_provider or "Unknown")
         self._local_provider_info.setText(f"LOCAL AGENT PROVIDER  {provider_label}")
         self._local_model_info.setText(f"LOCAL AGENT MODEL  {self._local_model or 'not configured'}")
@@ -1242,16 +1242,20 @@ class ApiKeyOverlay(QWidget):
                     str(item.get("id") or "").strip()
                     for item in model_items if isinstance(item, dict)
                 ]
-                found = (not available) or any(
-                    name == model or name.rsplit("/", 1)[-1] == model
-                    for name in available
-                )
-                if found:
-                    detail = "OpenAI-compatible endpoint online · configured model appears available."
+                if not available:
+                    detail = "OpenAI-compatible endpoint online · model list unavailable; use TEST LOCAL LLM to verify inference."
                     ok = True
                 else:
-                    detail = "Server online, but configured model was not found in /v1/models."
-                    ok = False
+                    found = any(
+                        name == model or name.rsplit("/", 1)[-1] == model
+                        for name in available
+                    )
+                    if found:
+                        detail = "OpenAI-compatible endpoint online · configured model appears available."
+                        ok = True
+                    else:
+                        detail = "Server online, but configured model was not found in /v1/models."
+                        ok = False
 
             self._local_connection_result.emit(ok, provider, url, model, detail)
         except Exception as exc:
@@ -1278,7 +1282,7 @@ class ApiKeyOverlay(QWidget):
             )
             return
         if ok:
-            self._local_info.setText(f"LOCAL AGENT CONNECTION  SERVER ONLINE · {detail}")
+            self._local_info.setText(f"LOCAL AGENT CONNECTION  {detail}")
             self._local_info.setStyleSheet(
                 f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
             )
