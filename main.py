@@ -945,7 +945,15 @@ class JarvisLive:
 
                 requested_target = _explicit_window_target(args)
                 if not requested_target:
-                    requested_target = await asyncio.to_thread(_active_window_description)
+                    foreground_title = await asyncio.to_thread(_active_window_description)
+                    foreground_key = str(foreground_title or "").casefold()
+                    # Do not interpret a generic request as permission to close
+                    # EDITH itself when its window currently has focus.
+                    if foreground_title and (
+                        "edith" in foreground_key or "personal assistant" in foreground_key
+                    ):
+                        foreground_title = ""
+                    requested_target = foreground_title
                 if not requested_target:
                     result = (
                         "Could not identify the exact app/window to close. Nothing was closed; "
