@@ -896,10 +896,9 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[Assistant] 🔧 {name}  {args}")
-        self.ui.set_state("THINKING")
-
         activity_label = describe_tool_activity(name, args)
+        print(f"[Assistant] 🔧 {name} — {activity_label}")
+        self.ui.set_state("THINKING")
         self.ui.write_log(f"ACTIVITY ▶ {activity_label}")
 
         if name == "save_memory":
@@ -908,7 +907,7 @@ class JarvisLive:
             value    = args.get("value", "")
             if key and value:
                 update_memory({category: {key: {"value": value}}})
-                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
+                print(f"[Memory] save_memory: category={category!r} (stored value redacted)")
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             self.ui.write_log(f"ACTIVITY ✓ {activity_label}")
