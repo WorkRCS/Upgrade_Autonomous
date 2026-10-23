@@ -38,6 +38,10 @@ class ActionActivityTests(unittest.TestCase):
         self.assertEqual(activity_outcome("Opened WhatsApp."), "ok")
         self.assertEqual(activity_outcome("Could not launch app."), "error")
         self.assertEqual(activity_outcome("No results were found."), "warning")
+        self.assertEqual(
+            activity_outcome("Launch request submitted for Docker Desktop, but I could not verify that it opened."),
+            "warning",
+        )
 
 
 if __name__ == "__main__":
