@@ -59,6 +59,22 @@ class ConfirmationRequirementTests(unittest.TestCase):
                     confirmation_requirement("computer_control", {"action": "type", "text": command})
                 )
 
+    def test_natural_language_computer_settings_description_is_guarded(self):
+        reason = confirmation_requirement(
+            "computer_settings",
+            {"description": "terminate the active application"},
+        )
+        self.assertIsNotNone(reason)
+        self.assertIn("active application", reason)
+
+    def test_destructive_command_typed_via_computer_settings_is_guarded(self):
+        reason = confirmation_requirement(
+            "computer_settings",
+            {"action": "type_text", "value": "docker rm -f container-123"},
+        )
+        self.assertIsNotNone(reason)
+        self.assertIn("container deletion", reason)
+
     def test_ordinary_shell_commands_are_not_blocked(self):
         for command in ("python app.py", "git status", "docker ps", "npm test"):
             with self.subTest(command=command):
