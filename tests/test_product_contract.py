@@ -51,7 +51,7 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("LLM & API CONNECTION", self.ui)
         self.assertIn("Google Gemini Live API", self.ui)
         self.assertIn("models/gemini-2.5-flash-native-audio-preview-12-2025", self.ui)
-        self.assertIn("LOCAL LLM  Not configured", self.ui)
+        self.assertIn("LOCAL OLLAMA  NOT TESTED", self.ui)
         self.assertIn("LAST TEST  PASSED", self.ui)
         self.assertIn("TIME TO FIRST MODEL RESPONSE", self.ui)
         self.assertIn("await session.send_client_content(", self.ui)
