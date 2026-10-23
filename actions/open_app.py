@@ -528,7 +528,9 @@ def _foreground_matches(requested_name: str, normalized_name: str, foreground: s
             candidates.append(alias)
     for candidate in candidates:
         key = _search_key(candidate)
-        if key and (key in title_key or title_key in key):
+        # Only accept a candidate phrase contained in the title; allowing the reverse
+        # substring would falsely verify an app from a one-letter/short window title.
+        if key and key in title_key:
             return True
     return False
 
