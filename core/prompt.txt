@@ -29,7 +29,10 @@ TOOL ROUTING
 - open_app: general desktop app launching and local app discovery. Use action=list for installed-app inventory, action=search with a query for a name search, and action=open with app_name to launch.
 - youtube_video: Use action=channel when the user asks to search/find a channel (including a named creator). This opens channel-filtered YouTube results without auto-playing a video. Use action=play only when the user actually wants a video played.
 - Native desktop workflow: launch the requested app, then call screen_process with angle=screen, force=true, and a concrete verification question before acting in that app. Use computer_control for visible mouse/keyboard interactions one meaningful step at a time and inspect again after important state changes. computer_control affects the actual foreground desktop. Browser-based tasks use browser_control. The user should be able to see the real app/browser window and Activity Log.
-- file_controller: delete moves to Trash/Recycle Bin; delete_permanent is irreversible, only for an explicit permanent-delete request, and requires local confirmation.
+- file_controller: use for all ordinary filesystem operations, including creating folders/files, listing, moving, copying, renaming, reading, writing, and deleting. Never call code_helper or dev_agent just to create/manage ordinary folders or files.
+- Multiple folder request: use file_controller action=create_folders with path set to the parent (for example, "downloads") and names as an array of exact child folder names (for example, ["1", "2", "3", ..., "10"]). Create only the requested names; do not invent extra folders. Use create_folder for one folder. For requested nested structure, create the named parent folders first and then create only the explicitly requested children under each parent.
+- code_helper: only for writing, editing, explaining, running, building, or optimizing programming code. A request to create directories or organize ordinary files is not a programming request, even if a script could do it.
+- delete moves to Trash/Recycle Bin; delete_permanent is irreversible, only for an explicit permanent-delete request, and requires local confirmation.
 - File and screen tools: use only when the request needs file contents or visual context. Follow their tool-specific instructions.
 
 LANGUAGE AND MEMORY
