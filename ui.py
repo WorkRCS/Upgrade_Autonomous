@@ -167,11 +167,11 @@ def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
             pass
 
 
-UI_BRAND = "AI ASSISTANT"
+UI_BRAND = "EDITH"
 
 
 def _display_assistant_name(_name: str = "") -> str:
-    """The product intentionally has no configurable assistant or character brand."""
+    """Return the fixed product display name without exposing old/custom branding."""
     return UI_BRAND
 
 
@@ -341,7 +341,7 @@ class _SysMetrics:
 _metrics = _SysMetrics()
 
 class HudCanvas(QWidget):
-    def __init__(self, face_path: str, assistant_name: str = "AI ASSISTANT", parent=None):
+    def __init__(self, face_path: str, assistant_name: str = "EDITH", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(300, 300)
@@ -1412,7 +1412,7 @@ class CustomizeOverlay(QWidget):
     saved = pyqtSignal(str, str, str)   # assistant_name, user_name, ui_color
     _OW, _OH = 400, 480
 
-    def __init__(self, assistant_name="AI ASSISTANT", user_name="",
+    def __init__(self, assistant_name="EDITH", user_name="",
                  ui_color=DEFAULT_UI_COLOR, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -1565,7 +1565,7 @@ class CustomizeOverlay(QWidget):
         self.hide()
 
     def _save(self):
-        name = "AI ASSISTANT"
+        name = "EDITH"
         user = self._user_input.text().strip()
         self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR)
         self.hide()
@@ -1997,6 +1997,8 @@ class RemoteKeyOverlay(QWidget):
 
 
 class MainWindow(QMainWindow):
+    voice_mode_signal = pyqtSignal(str)
+    open_api_key_settings_signal = pyqtSignal()
     _log_sig        = pyqtSignal(str)
     _state_sig      = pyqtSignal(str)
     _content_sig    = pyqtSignal(str, str)   # (title, text) — thread-safe content display
@@ -2008,11 +2010,13 @@ class MainWindow(QMainWindow):
 
     def __init__(self, face_path: str):
         super().__init__()
+        self.voice_mode_signal.connect(self.set_voice_mode_display)
+        self.open_api_key_settings_signal.connect(self._open_api_key_settings)
         self._face_path = face_path
 
         # Load customization from config
         _cfg = _read_full_config()
-        self._assistant_name: str = "AI ASSISTANT"
+        self._assistant_name: str = "EDITH"
         _display = _display_assistant_name(self._assistant_name)
         self._display_name = _display
 
@@ -2023,7 +2027,7 @@ class MainWindow(QMainWindow):
         if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
             apply_ui_accent(_ui_color)
 
-        self.setWindowTitle("AI ASSISTANT • DESKTOP")
+        self.setWindowTitle("EDITH • PERSONAL ASSISTANT")
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -2656,7 +2660,7 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {color}; background: transparent;")
             return l
 
-        lay.addWidget(_badge("PERSONAL AI", C.PRI_DIM))
+        lay.addWidget(_badge("EDITH SYSTEMS", C.PRI_DIM))
         lay.addSpacing(12)
         self._drawer_btn = QPushButton("⚙")
         self._drawer_btn.setFixedSize(28, 28)
@@ -2683,7 +2687,7 @@ class MainWindow(QMainWindow):
         self._title_lbl.setFont(QFont(FONT_MAIN, 16, QFont.Weight.Bold))
         self._title_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         mid.addWidget(self._title_lbl)
-        _sub_text = "VOICE  •  VISION  •  AUTOMATION"
+        _sub_text = "PERSONAL ASSISTANT SYSTEM  •  VOICE  •  VISION"
         self._sub_lbl = QLabel(_sub_text)
         self._sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sub_lbl.setFont(QFont(FONT_MAIN, 8))
@@ -3410,12 +3414,12 @@ class MainWindow(QMainWindow):
 
     def _apply_name_update(self, name: str, user_name: str, ui_color: str = ""):
         """Update all name/theme-dependent UI elements and persist to config."""
-        self._assistant_name = "AI ASSISTANT"
+        self._assistant_name = "EDITH"
         self._display_name = UI_BRAND
         display = self._display_name
-        self.setWindowTitle("AI ASSISTANT • DESKTOP")
+        self.setWindowTitle("EDITH • PERSONAL ASSISTANT")
         self._title_lbl.setText(UI_BRAND)
-        self._sub_lbl.setText("VOICE  •  VISION  •  AUTOMATION")
+        self._sub_lbl.setText("PERSONAL ASSISTANT SYSTEM  •  VOICE  •  VISION")
         self._log._ai_name_lc = self._assistant_name.lower()
         self.hud._assistant_name = display
 
@@ -3561,7 +3565,7 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._assistant_name = "AI ASSISTANT"
+        self._assistant_name = "EDITH"
         self._display_name = UI_BRAND
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._display_name} online.")
 
