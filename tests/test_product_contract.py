@@ -84,6 +84,9 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("Orus", self.readme)
         self.assertIn("test the key", self.readme.lower())
         self.assertIn("Upgrade_Autonomous.git", self.readme)
+        self.assertIn("Cross-app desktop control", self.readme)
+        self.assertIn("List installed desktop apps.", self.readme)
+        self.assertIn("foreground-window label matches", self.readme)
 
 
 if __name__ == "__main__":
