@@ -100,6 +100,13 @@ class ConfirmationRequirementTests(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("container deletion", reason)
 
+    def test_delete_key_requires_confirmation_in_desktop_apps(self):
+        reason = confirmation_requirement(
+            "computer_control", {"action": "press_key", "key": "Delete"}
+        )
+        self.assertIsNotNone(reason)
+        self.assertIn("selected item", reason)
+
     def test_ordinary_shell_commands_are_not_blocked(self):
         for command in ("python app.py", "git status", "docker ps", "npm test"):
             with self.subTest(command=command):
