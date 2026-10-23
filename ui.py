@@ -61,27 +61,27 @@ _RIGHT_W = 340
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 class C:
-    BG        = "#050914"
-    PANEL     = "#09111D"
-    PANEL2    = "#0E1B2B"
-    BORDER    = "#1B2E43"
-    BORDER_B  = "#29445F"
-    BORDER_A  = "#3B5F7D"
-    PRI       = "#83D8FF"   # EDITH ice-blue interface accent
-    PRI_DIM   = "#3D8FB8"
-    PRI_GHO   = "#0A263B"
-    ACC       = "#A99BFF"   # Soft violet secondary accent
-    ACC2      = "#F4CA78"   # Warm amber for system highlights
-    GREEN     = "#63E6C1"
-    GREEN_D   = "#299A83"
-    RED       = "#FF647C"
-    MUTED_C   = "#FF647C"
-    TEXT      = "#EAF4FF"
-    TEXT_DIM  = "#657D95"
-    TEXT_MED  = "#A1B6CA"
+    BG        = "#0B0D12"
+    PANEL     = "#121722"
+    PANEL2    = "#191F2B"
+    BORDER    = "#293142"
+    BORDER_B  = "#39445A"
+    BORDER_A  = "#4B5870"
+    PRI       = "#A5B4FC"   # Restrained periwinkle accent
+    PRI_DIM   = "#7889D8"
+    PRI_GHO   = "#252B49"
+    ACC       = "#D7B8F7"   # Soft lavender secondary accent
+    ACC2      = "#E8C995"   # Warm editorial highlight
+    GREEN     = "#76D7B0"
+    GREEN_D   = "#3E9D7A"
+    RED       = "#F48F9D"
+    MUTED_C   = "#F48F9D"
+    TEXT      = "#F1F3F9"
+    TEXT_DIM  = "#7F899B"
+    TEXT_MED  = "#B1B9C8"
     WHITE     = "#FFFFFF"
-    DARK      = "#040812"
-    BAR_BG    = "#111F30"
+    DARK      = "#080A10"
+    BAR_BG    = "#171C27"
 
 
 # Ana renge (accent) bağlı anahtarlar — durum renkleri (ACC, GREEN, RED…) sabit kalır
@@ -167,13 +167,13 @@ def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
             pass
 
 
-UI_BRAND = "EDITH"
+UI_BRAND = "AI ASSISTANT"
 
 
 def _display_assistant_name(name: str) -> str:
-    """Return the presentation-layer assistant name without changing engine identity."""
+    """Map legacy fictional names to the neutral app label."""
     value = (name or "").strip()
-    if not value or value.upper() in {"JARVIS", "J.A.R.V.I.S"}:
+    if not value or value.upper() in {"JARVIS", "J.A.R.V.I.S", "EDITH", "AI ASSISTANT"}:
         return UI_BRAND
     return value.upper()
 
@@ -344,7 +344,7 @@ class _SysMetrics:
 _metrics = _SysMetrics()
 
 class HudCanvas(QWidget):
-    def __init__(self, face_path: str, assistant_name: str = "EDITH", parent=None):
+    def __init__(self, face_path: str, assistant_name: str = "AI ASSISTANT", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(300, 300)
@@ -825,7 +825,7 @@ class FileDropZone(QWidget):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select a file for EDITH", str(Path.home()),
+            self, "Select a file", str(Path.home()),
             "All Files (*.*);;"
             "Images (*.jpg *.jpeg *.png *.gif *.webp *.bmp *.svg);;"
             "Documents (*.pdf *.docx *.txt *.md *.pptx);;"
@@ -1232,7 +1232,7 @@ class CustomizeOverlay(QWidget):
     saved = pyqtSignal(str, str, str)   # assistant_name, user_name, ui_color
     _OW, _OH = 400, 480
 
-    def __init__(self, assistant_name="EDITH", user_name="",
+    def __init__(self, assistant_name="AI ASSISTANT", user_name="",
                  ui_color=DEFAULT_UI_COLOR, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -1275,7 +1275,7 @@ class CustomizeOverlay(QWidget):
         lay.addWidget(_lbl("YOUR NAME (Optional)", 8,
                             color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft))
         self._user_input = QLineEdit(user_name)
-        self._user_input.setPlaceholderText("e.g. Tony")
+        self._user_input.setPlaceholderText("Your name")
         self._user_input.setFont(QFont(FONT_MAIN, 10))
         self._user_input.setFixedHeight(34)
         self._user_input.setStyleSheet(_fs)
@@ -1392,7 +1392,7 @@ class CustomizeOverlay(QWidget):
         self.hide()
 
     def _save(self):
-        name = self._name_input.text().strip() or "EDITH"
+        name = self._name_input.text().strip() or "AI ASSISTANT"
         user = self._user_input.text().strip()
         self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR)
         self.hide()
@@ -1510,7 +1510,7 @@ class PluginManagerOverlay(QWidget):
 
 
 class ClipboardPanel(QWidget):
-    """Floating panel shown when text is copied — offers quick Jarvis actions."""
+    """Floating panel shown when text is copied — offers quick assistant actions."""
 
     action_requested = pyqtSignal(str)
     _W, _H = 320, 110
@@ -1850,7 +1850,7 @@ class MainWindow(QMainWindow):
         if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
             apply_ui_accent(_ui_color)
 
-        self.setWindowTitle(f"{_display} — EDITH INTERFACE")
+        self.setWindowTitle("AI ASSISTANT • DESKTOP")
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -2075,106 +2075,53 @@ class MainWindow(QMainWindow):
         self._cam_stop.set()
 
     # ------------------------------------------------------------------
-    # Icon generation — arc-reactor style, rendered with Pillow
-    # ------------------------------------------------------------------
+    # Neutral app icon — abstract illuminated orb, without character or brand marks.
     @staticmethod
-    def _build_jarvis_icon(out_path: Path) -> bool:
-        """
-        Render a JARVIS arc-reactor icon at 4× resolution and downsample
-        for crisp results at all sizes. Saves a multi-res .ico to out_path.
-        Returns True on success.
-        """
+    def _build_assistant_icon(out_path: Path) -> bool:
+        """Render a clean multi-resolution assistant icon using Pillow."""
         try:
-            import math
             import PIL.Image
             import PIL.ImageDraw
             import PIL.ImageFilter
         except ImportError:
             return False
 
-        CYAN   = (0, 229, 255)
-        DIM    = (0, 153, 179)
-        DARK   = (5, 6, 8)
-        GLOW   = (0, 180, 210)
-        WHITE  = (220, 240, 255)
+        ACCENT = (165, 180, 252)
+        HILITE = (222, 226, 255)
+        BASE = (11, 13, 18)
 
-        def _render(sz: int) -> PIL.Image.Image:
-            S  = sz * 4                     # draw at 4× then downscale
-            img = PIL.Image.new("RGBA", (S, S), (0, 0, 0, 0))
-            d   = PIL.ImageDraw.Draw(img)
-            cx = cy = S // 2
-
-            # ── filled background circle ──────────────────────────────────
-            R = S // 2 - 2
-            d.ellipse([cx-R, cy-R, cx+R, cy+R], fill=(*DARK, 255))
-
-            # ── outer border ring ─────────────────────────────────────────
-            lw = max(2, S // 40)
-            d.ellipse([cx-R, cy-R, cx+R, cy+R],
-                      outline=(*CYAN, 220), width=lw)
-
-            # ── mid decorative ring ───────────────────────────────────────
-            R2 = int(R * 0.72)
-            d.ellipse([cx-R2, cy-R2, cx+R2, cy+R2],
-                      outline=(*DIM, 180), width=max(1, lw // 2))
-
-            # ── 6 radial spokes (hex bolt) ────────────────────────────────
-            R_inner = int(R * 0.30)
-            R_outer = int(R * 0.62)
-            spoke_w = max(1, S // 80)
-            for i in range(6):
-                angle = math.radians(i * 60 - 30)
-                x1 = cx + int(R_inner * math.cos(angle))
-                y1 = cy + int(R_inner * math.sin(angle))
-                x2 = cx + int(R_outer * math.cos(angle))
-                y2 = cy + int(R_outer * math.sin(angle))
-                d.line([x1, y1, x2, y2], fill=(*GLOW, 200), width=spoke_w)
-
-            # ── 6 tick marks on outer ring ────────────────────────────────
-            for i in range(6):
-                angle = math.radians(i * 60)
-                for dr in range(lw * 2):
-                    rx = (R - lw - dr)
-                    d.point(
-                        [cx + int(rx * math.cos(angle)),
-                         cy + int(rx * math.sin(angle))],
-                        fill=(*WHITE, 220),
-                    )
-
-            # ── inner glowing ring ────────────────────────────────────────
-            Ri = int(R * 0.26)
-            d.ellipse([cx-Ri, cy-Ri, cx+Ri, cy+Ri],
-                      outline=(*CYAN, 255), width=max(2, lw))
-
-            # ── bright glow soft blur applied before core ─────────────────
-            # (draw a slightly larger cyan circle on a separate layer)
-            glow_layer = PIL.Image.new("RGBA", (S, S), (0, 0, 0, 0))
-            gd = PIL.ImageDraw.Draw(glow_layer)
-            Rc = int(R * 0.13)
-            gd.ellipse([cx-Rc*2, cy-Rc*2, cx+Rc*2, cy+Rc*2],
-                       fill=(*CYAN, 110))
-            glow_layer = glow_layer.filter(PIL.ImageFilter.GaussianBlur(S // 14))
-            img = PIL.Image.alpha_composite(img, glow_layer)
-            d   = PIL.ImageDraw.Draw(img)
-
-            # ── core dot ──────────────────────────────────────────────────
-            d.ellipse([cx-Rc, cy-Rc, cx+Rc, cy+Rc], fill=(*WHITE, 255))
-
-            # ── downscale to target size ──────────────────────────────────
-            return img.resize((sz, sz), PIL.Image.LANCZOS)
+        def _render(size: int) -> PIL.Image.Image:
+            scale = 4
+            side = size * scale
+            image = PIL.Image.new("RGBA", (side, side), (0, 0, 0, 0))
+            draw = PIL.ImageDraw.Draw(image)
+            cx = cy = side // 2
+            radius = side // 2 - scale * 2
+            draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill=(*BASE, 255))
+            draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius),
+                         outline=(*ACCENT, 225), width=max(2, side // 38))
+            glow = PIL.Image.new("RGBA", (side, side), (0, 0, 0, 0))
+            gd = PIL.ImageDraw.Draw(glow)
+            halo = int(radius * 0.52)
+            gd.ellipse((cx-halo, cy-halo, cx+halo, cy+halo), fill=(*ACCENT, 48))
+            glow = glow.filter(PIL.ImageFilter.GaussianBlur(max(2, side // 12)))
+            image = PIL.Image.alpha_composite(image, glow)
+            draw = PIL.ImageDraw.Draw(image)
+            inner = int(radius * 0.42)
+            draw.ellipse((cx-inner, cy-inner, cx+inner, cy+inner),
+                         outline=(*ACCENT, 200), width=max(2, side // 48))
+            core = int(radius * 0.16)
+            draw.ellipse((cx-core, cy-core, cx+core, cy+core), fill=(*HILITE, 255))
+            return image.resize((size, size), PIL.Image.Resampling.LANCZOS)
 
         try:
-            sizes  = [256, 128, 64, 48, 32, 16]
+            sizes = [256, 128, 64, 48, 32, 16]
             frames = [_render(s) for s in sizes]
-            frames[0].save(
-                out_path,
-                format="ICO",
-                append_images=frames[1:],
-                sizes=[(s, s) for s in sizes],
-            )
+            frames[0].save(out_path, format="ICO", append_images=frames[1:],
+                           sizes=[(s, s) for s in sizes])
             return True
-        except Exception as e:
-            print(f"[Shortcut] ⚠️  Icon generation failed: {e}")
+        except Exception as exc:
+            print(f"[Shortcut] Icon generation failed: {exc}")
             return False
 
     @staticmethod
@@ -2193,7 +2140,7 @@ class MainWindow(QMainWindow):
             sc.TargetPath       = target
             sc.Arguments        = f'"{args}"'
             sc.WorkingDirectory = work_dir
-            sc.Description      = "J.A.R.V.I.S AI Assistant"
+            sc.Description      = "AI Assistant"
             sc.IconLocation     = icon_loc
             sc.save()
             return
@@ -2208,7 +2155,7 @@ class MainWindow(QMainWindow):
             f'sc.TargetPath = "{target}"',
             f'sc.Arguments = Chr(34) & "{args}" & Chr(34)',
             f'sc.WorkingDirectory = "{work_dir}"',
-            'sc.Description = "J.A.R.V.I.S AI Assistant"',
+            'sc.Description = "AI Assistant"',
             f'sc.IconLocation = "{icon_loc}"',
             'sc.Save',
         ])
@@ -2320,9 +2267,9 @@ class MainWindow(QMainWindow):
         desktop = self._get_desktop_dir()
 
         # Arc-reactor icon (.ico — also exported as .png for Linux/macOS)
-        ico_path = Path(__file__).resolve().parent / "config" / "jarvis.ico"
+        ico_path = Path(__file__).resolve().parent / "config" / "assistant.ico"
         if not ico_path.exists():
-            self._build_jarvis_icon(ico_path)
+            self._build_assistant_icon(ico_path)
 
         try:
             _os = platform.system()
@@ -2331,14 +2278,14 @@ class MainWindow(QMainWindow):
             if _os == "Windows":
                 pythonw  = python.parent / "pythonw.exe"
                 target   = str(pythonw if pythonw.exists() else python)
-                lnk      = str(desktop / "J.A.R.V.I.S.lnk")
+                lnk      = str(desktop / "AI Assistant.lnk")
                 icon_loc = str(ico_path) if ico_path.exists() else f"{target},0"
                 self._create_lnk_windows(lnk, target, str(script),
                                          str(script.parent), icon_loc)
 
             # ── macOS — proper .app bundle (no Terminal window) ───────────────
             elif _os == "Darwin":
-                app     = desktop / "J.A.R.V.I.S.app"
+                app     = desktop / "AI Assistant.app"
                 mac_dir = app / "Contents" / "MacOS"
                 res_dir = app / "Contents" / "Resources"
                 mac_dir.mkdir(parents=True, exist_ok=True)
@@ -2346,7 +2293,7 @@ class MainWindow(QMainWindow):
 
                 # Launcher executable (bash — runs as background process,
                 # macOS does NOT open Terminal for executables inside .app bundles)
-                launcher = mac_dir / "JARVIS"
+                launcher = mac_dir / "Assistant"
                 launcher.write_text(
                     "#!/usr/bin/env bash\n"
                     f'cd "{script.parent}"\n'
@@ -2361,10 +2308,10 @@ class MainWindow(QMainWindow):
                     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                     '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
                     '<plist version="1.0"><dict>\n'
-                    '  <key>CFBundleExecutable</key><string>JARVIS</string>\n'
+                    '  <key>CFBundleExecutable</key><string>Assistant</string>\n'
                     '  <key>CFBundleIdentifier</key>'
-                    '<string>com.jarvis.assistant</string>\n'
-                    '  <key>CFBundleName</key><string>J.A.R.V.I.S</string>\n'
+                    '<string>local.aiassistant.desktop</string>\n'
+                    '  <key>CFBundleName</key><string>AI Assistant</string>\n'
                     '  <key>CFBundlePackageType</key><string>APPL</string>\n'
                     '  <key>CFBundleVersion</key><string>1.0</string>\n'
                     '</dict></plist>\n'
@@ -2402,10 +2349,10 @@ class MainWindow(QMainWindow):
                         png_path = ico_path  # fallback to .ico
 
                 icon_line = f"Icon={png_path}\n" if png_path.exists() else ""
-                desk = desktop / "J.A.R.V.I.S.desktop"
+                desk = desktop / "ai-assistant.desktop"
                 desk.write_text(
                     "[Desktop Entry]\n"
-                    "Name=J.A.R.V.I.S\n"
+                    "Name=AI Assistant\n"
                     f"Exec={python} {script}\n"
                     f"Path={script.parent}\n"
                     "Type=Application\n"
@@ -2528,7 +2475,7 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {color}; background: transparent;")
             return l
 
-        lay.addWidget(_badge("EDITH SYSTEMS", C.PRI_DIM))
+        lay.addWidget(_badge("PERSONAL AI", C.PRI_DIM))
         lay.addSpacing(12)
         self._drawer_btn = QPushButton("⚙")
         self._drawer_btn.setFixedSize(28, 28)
@@ -2555,9 +2502,7 @@ class MainWindow(QMainWindow):
         self._title_lbl.setFont(QFont(FONT_MAIN, 16, QFont.Weight.Bold))
         self._title_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         mid.addWidget(self._title_lbl)
-        _sub_text = ("EVEN DEAD, I'M THE HERO"
-                     if _disp == UI_BRAND
-                     else "PERSONAL AI ASSISTANT")
+        _sub_text = "VOICE  •  VISION  •  AUTOMATION"
         self._sub_lbl = QLabel(_sub_text)
         self._sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sub_lbl.setFont(QFont(FONT_MAIN, 8))
@@ -3088,7 +3033,7 @@ class MainWindow(QMainWindow):
                         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                         '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
                         '<plist version="1.0"><dict>\n'
-                        '  <key>Label</key><string>com.jarvis.assistant</string>\n'
+                        '  <key>Label</key><string>local.aiassistant.desktop</string>\n'
                         '  <key>ProgramArguments</key><array>\n'
                         f'    <string>{sys.executable}</string>\n'
                         f'    <string>{script}</string>\n'
@@ -3105,7 +3050,7 @@ class MainWindow(QMainWindow):
                 else:
                     desk.write_text(
                         "[Desktop Entry]\n"
-                        f"Name={self._assistant_name}\n"
+                        f"Name={self._display_name}\n"
                         f"Exec={sys.executable} {script}\n"
                         "Type=Application\nTerminal=false\n"
                         "X-GNOME-Autostart-enabled=true\n"
@@ -3202,15 +3147,12 @@ class MainWindow(QMainWindow):
 
     def _apply_name_update(self, name: str, user_name: str, ui_color: str = ""):
         """Update all name/theme-dependent UI elements and persist to config."""
-        self._assistant_name = name.strip() or "EDITH"
+        self._assistant_name = name.strip() or "AI ASSISTANT"
         self._display_name = _display_assistant_name(self._assistant_name)
         display = self._display_name
-        self.setWindowTitle(f"{display} — EDITH INTERFACE")
-        self._title_lbl.setText(display)
-        if display == UI_BRAND:
-            self._sub_lbl.setText("EVEN DEAD, I'M THE HERO")
-        else:
-            self._sub_lbl.setText("PERSONAL AI ASSISTANT")
+        self.setWindowTitle("AI ASSISTANT • DESKTOP")
+        self._title_lbl.setText(UI_BRAND)
+        self._sub_lbl.setText("VOICE  •  VISION  •  AUTOMATION")
         self._log._ai_name_lc = self._assistant_name.lower()
         self.hud._assistant_name = display
 
