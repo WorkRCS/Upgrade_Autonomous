@@ -354,16 +354,17 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "file_controller",
-        "description": "Manages files and folders: list, create, delete (moves to Trash/Recycle Bin), delete_permanent (irreversible, requires a local confirmation dialog), move, copy, rename, read, write, find, disk usage.",
+        "description": "Use for ordinary filesystem tasks: list, create a file, create one or many folders, move, copy, rename, read, write, find, and delete. For basic file/folder operations, always use file_controller rather than code_helper; do not generate or run a script just to create folders.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | delete_permanent | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
+                "action":      {"type": "STRING", "description": "list | create_file | create_folder | create_folders | delete | delete_permanent | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
                 "path":        {"type": "STRING", "description": "File/folder path or shortcut: desktop, downloads, documents, home"},
                 "destination": {"type": "STRING", "description": "Destination path for move/copy"},
                 "new_name":    {"type": "STRING", "description": "New name for rename"},
                 "content":     {"type": "STRING", "description": "Content for create_file/write"},
-                "name":        {"type": "STRING", "description": "File name to search for"},
+                "name":        {"type": "STRING", "description": "File name, folder name, or search name for single-item actions"},
+                "names":       {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Names of multiple immediate child folders for create_folders; provide each exact folder name"},
                 "extension":   {"type": "STRING", "description": "File extension to search (e.g. .pdf)"},
                 "count":       {"type": "INTEGER", "description": "Number of results for largest"},
             },
@@ -387,7 +388,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "code_helper",
-        "description": "Writes, edits, explains, runs, or builds code files.",
+        "description": "ONLY for programming tasks: write/edit/explain/run/build/optimize source code. Never use for ordinary file or folder management (creating/listing/moving/copying/renaming/deleting folders or files); route those requests to file_controller.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
