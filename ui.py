@@ -28,7 +28,7 @@ from PyQt6.QtGui import (
     QPen, QPixmap, QRadialGradient, QShortcut,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QMessageBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QFileDialog, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
@@ -3221,28 +3221,80 @@ class MainWindow(QMainWindow):
         return w
 
     def _show_action_confirmation(self, title: str, details: str, state: dict):
-        """Render a native, default-cancel confirmation dialog on the Qt UI thread."""
+        """Show a scrollable, default-cancel local approval dialog on the Qt UI thread."""
         try:
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle((title or "Confirm sensitive action")[:100])
-            box.setText("Confirmation required before this action can run.")
-            box.setInformativeText(
-                (details or "Review the requested operation.")[:1800]
+            dialog = QDialog(self)
+            dialog.setWindowTitle((title or "Confirm sensitive action")[:100])
+            dialog.setModal(True)
+            dialog.setMinimumSize(640, 460)
+            dialog.resize(760, 560)
+            dialog.setStyleSheet(f"""
+                QDialog {{
+                    background: {C.PANEL};
+                    color: {C.TEXT};
+                }}
+                QLabel {{
+                    color: {C.TEXT};
+                    background: transparent;
+                }}
+                QTextEdit {{
+                    background: {C.DARK};
+                    color: {C.TEXT};
+                    border: 1px solid {C.BORDER_B};
+                    border-radius: 6px;
+                    padding: 10px;
+                    selection-background-color: {C.PRI_GHO};
+                }}
+                QPushButton {{
+                    min-height: 34px;
+                    padding: 0 14px;
+                    border-radius: 5px;
+                    background: {C.PANEL2};
+                    color: {C.TEXT};
+                    border: 1px solid {C.BORDER_B};
+                }}
+                QPushButton#confirmAction {{
+                    background: {C.PRI_GHO};
+                    border-color: {C.PRI};
+                    color: {C.TEXT};
+                    font-weight: 600;
+                }}
+            """)
+            layout = QVBoxLayout(dialog)
+            layout.setContentsMargins(18, 18, 18, 16)
+            layout.setSpacing(10)
+
+            heading = QLabel("Review this action before it runs")
+            heading.setFont(QFont(FONT_MAIN, 12, QFont.Weight.Bold))
+            heading.setWordWrap(True)
+            layout.addWidget(heading)
+
+            preview = QTextEdit()
+            preview.setReadOnly(True)
+            preview.setAcceptRichText(False)
+            preview.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+            preview.setPlainText(
+                (details or "Review the requested operation.")
                 + "\n\nNothing will be changed unless you choose Confirm and Execute."
             )
-            box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            yes_btn = box.button(QMessageBox.StandardButton.Yes)
-            no_btn = box.button(QMessageBox.StandardButton.No)
-            if yes_btn:
-                yes_btn.setText("Confirm and Execute")
-            if no_btn:
-                no_btn.setText("Cancel")
-            box.setDefaultButton(QMessageBox.StandardButton.No)
-            box.setEscapeButton(QMessageBox.StandardButton.No)
-            state["confirmed"] = int(box.exec()) == int(QMessageBox.StandardButton.Yes)
+            preview.setMinimumHeight(280)
+            layout.addWidget(preview, stretch=1)
+
+            buttons = QHBoxLayout()
+            buttons.addStretch()
+            cancel_btn = QPushButton("Cancel")
+            cancel_btn.setDefault(True)
+            confirm_btn = QPushButton("Confirm and Execute")
+            confirm_btn.setObjectName("confirmAction")
+            confirm_btn.setDefault(False)
+            confirm_btn.setAutoDefault(False)
+            cancel_btn.clicked.connect(dialog.reject)
+            confirm_btn.clicked.connect(dialog.accept)
+            buttons.addWidget(cancel_btn)
+            buttons.addWidget(confirm_btn)
+            layout.addLayout(buttons)
+
+            state["confirmed"] = int(dialog.exec()) == int(QDialog.DialogCode.Accepted)
         except Exception as exc:
             print(f"[Confirmation] Dialog unavailable: {type(exc).__name__}")
             state["confirmed"] = False
@@ -3742,7 +3794,7 @@ class JarvisUI:
         """Ask the user through the Qt GUI; timeout/cancellation never authorizes the action."""
         state = {"event": threading.Event(), "confirmed": False}
         self._win._confirm_action_sig.emit(
-            str(title or "")[:100], str(details or "")[:1800], state
+            str(title or "")[:100], str(details or ""), state
         )
         if not state["event"].wait(max(1.0, float(timeout))):
             self.write_log("ACTIVITY CANCELLED: confirmation timed out; no action was executed.")
