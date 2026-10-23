@@ -256,7 +256,7 @@ def _clear_field() -> str:
     return "Field cleared"
 
 def _focus_window(title: str) -> str:
-    """Focus a window whose title matches the target, without shell interpolation."""
+    """Focus a window matching the target using native APIs and argument arrays only."""
     target = str(title or "").strip()
     if not target:
         return "No target window was provided."
@@ -266,7 +266,6 @@ def _focus_window(title: str) -> str:
     if os_name == "windows":
         try:
             import ctypes
-
             user32 = ctypes.windll.user32
             matches = []
 
@@ -306,7 +305,7 @@ def _focus_window(title: str) -> str:
             return f"focus_window (Windows) failed: {type(e).__name__}"
 
     if os_name == "mac":
-        # Static AppleScript; the target comes through argv, never through source interpolation.
+        # Static AppleScript; the target is passed through argv, never interpolated into source.
         script = (
             "on run argv\n"
             "set wantedName to item 1 of argv\n"
@@ -333,7 +332,7 @@ def _focus_window(title: str) -> str:
             return f"focus_window (macOS) failed: {type(e).__name__}"
 
     if os_name == "linux":
-        # Both commands use argument arrays; a title is never passed to a shell.
+        # Titles are arguments, not shell fragments.
         if shutil.which("wmctrl"):
             try:
                 result = subprocess.run(
