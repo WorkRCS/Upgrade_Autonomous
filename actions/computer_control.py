@@ -413,7 +413,7 @@ def computer_control(
     if player:
         player.write_log(f"[Computer] {action}")
 
-    print(f"[ComputerControl] ▶ {action}  {params}")
+    print(f"[ComputerControl] ▶ {action}")
 
     try:
 
@@ -495,7 +495,7 @@ def computer_control(
         if action == "random_data":
             dt     = params.get("type", "name")
             result = _random_data(dt)
-            print(f"[ComputerControl] 🎲 random {dt} → {result}")
+            print(f"[ComputerControl] random data generated for type={dt}")
             return result
 
         if action == "user_data":
@@ -504,7 +504,7 @@ def computer_control(
             value   = profile.get(field, "")
             if not value:
                 value = _random_data(field)
-                print(f"[ComputerControl] ⚠️ No '{field}' in memory, using random: {value}")
+                print(f"[ComputerControl] No saved profile value for field={field}; generated fallback data (value omitted)")
             return value
 
         return f"Unknown action: '{action}'"
