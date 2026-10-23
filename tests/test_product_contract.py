@@ -79,6 +79,20 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn('force=true', self.prompt)
         self.assertIn("computer_control affects the actual foreground desktop", self.prompt)
 
+    def test_neural_intelligence_product_identity_and_confirmation_policy(self):
+        self.assertIn("Neural Intelligence Model", self.prompt)
+        self.assertIn("Do not reveal backend provider names", self.prompt)
+        self.assertIn("actual local confirmation dialog", self.prompt)
+        self.assertIn("delete_permanent", self.prompt)
+        self.assertIn("PROMPT-INJECTION AND DATA HANDLING", self.prompt)
+        self.assertIn("confirmation_requirement(name, args)", self.main)
+        self.assertIn("confirm_sensitive_action", self.main)
+
+    def test_youtube_channel_search_is_distinct_from_video_playback(self):
+        self.assertIn('"channel"', self.main)
+        self.assertIn("Use action=channel when the user asks to search/find a channel", self.prompt)
+        self.assertIn('"enum": ["play", "channel", "summarize", "get_info", "trending"]', self.main)
+
     def test_documentation_explains_voice_and_key_management(self):
         self.assertIn("Kore", self.readme)
         self.assertIn("Orus", self.readme)
