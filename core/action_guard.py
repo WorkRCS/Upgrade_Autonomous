@@ -53,6 +53,34 @@ def _target_path(params: dict) -> str:
     return path
 
 
+def _explicit_window_target(parameters: dict | None = None) -> str:
+    """Extract a named window/app from a close request without inventing a target."""
+    p = parameters or {}
+    for key in ("_confirmation_window_target", "title", "window_title", "app_name"):
+        value = _text(p.get(key) or "", 120)
+        if value:
+            return value
+
+    description = _text(p.get("description") or "", 180)
+    if not description:
+        return ""
+    target = re.sub(
+        r"^\s*(?:please\s+)?(?:close|terminate|kill|quit|exit|stop)\s+"
+        r"(?:(?:the|my)\s+)?",
+        "",
+        description,
+        flags=re.I,
+    ).strip(" .,:;")
+    target = re.sub(r"\s+(?:app|application|window|program|process)$", "", target, flags=re.I).strip()
+    if target.casefold() in {
+        "", "active", "current", "active app", "current app", "active application",
+        "current application", "active window", "current window", "app", "application",
+        "window", "program", "process", "the app", "the application", "the window",
+    }:
+        return ""
+    return _text(target, 120)
+
+
 def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> str | None:
     """Return a user-facing confirmation description, or None for ordinary actions.
 
@@ -90,9 +118,10 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
             return "Restart this computer? Unsaved work may be lost. Confirm before restarting."
         if action == "shutdown":
             return "Shut down this computer? Unsaved work may be lost. Confirm before powering off."
+        target = _explicit_window_target(p) or "the active application/window"
         if action == "close_app":
-            return "Close/terminate the active application? Unsaved work may be lost. Confirm before closing it."
-        return "Close the active window? Unsaved work may be lost. Confirm before closing it."
+            return f"Close/terminate '{target}'? Unsaved work may be lost. Confirm only if this is the exact target."
+        return f"Close the window '{target}'? Unsaved work may be lost. Confirm only if this is the exact target."
 
     if name == "send_message":
         platform = _text(p.get("platform") or "messaging app", 35)
