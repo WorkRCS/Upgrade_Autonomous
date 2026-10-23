@@ -172,6 +172,67 @@ def create_folder(path: str, name: str = "") -> str:
         return f"Could not create folder: {e}"
 
 
+def create_folders(path: str, names: list[str] | None = None) -> str:
+    """Create multiple immediate child folders safely under one user-approved directory."""
+    if not isinstance(names, list) or not names:
+        return "No folder names provided."
+
+    try:
+        base = _resolve_path(path)
+        if not _is_safe_path(base):
+            return f"Access denied: {base}"
+        if base.exists() and not base.is_dir():
+            return f"Not a directory: {base}"
+        base.mkdir(parents=True, exist_ok=True)
+
+        created: list[str] = []
+        existing: list[str] = []
+        errors: list[str] = []
+        for raw_name in names:
+            if not isinstance(raw_name, str):
+                errors.append("Rejected a folder name that was not text.")
+                continue
+            folder_name = raw_name.strip()
+            # Batch mode creates children only; reject traversal and nested paths.
+            if (
+                not folder_name
+                or folder_name in {".", ".."}
+                or "/" in folder_name
+                or "\\" in folder_name
+                or "\\x00" in folder_name
+                or Path(folder_name).is_absolute()
+            ):
+                errors.append(f"Rejected invalid folder name: {folder_name!r}")
+                continue
+
+            target = base / folder_name
+            if not _is_safe_path(target):
+                errors.append(f"Access denied: {folder_name}")
+                continue
+            try:
+                if target.exists():
+                    if target.is_dir():
+                        existing.append(folder_name)
+                    else:
+                        errors.append(f"A file already exists with this name: {folder_name}")
+                    continue
+                target.mkdir(exist_ok=False)
+                created.append(folder_name)
+            except Exception as exc:
+                errors.append(f"{folder_name}: {type(exc).__name__}: {exc}")
+
+        lines = [
+            f"Folder batch completed in {base}: "
+            f"{len(created)} created, {len(existing)} already existed, {len(errors)} failed."
+        ]
+        lines.extend(f"Created: {name}" for name in created)
+        lines.extend(f"Already existed: {name}" for name in existing)
+        lines.extend(f"Failed: {error}" for error in errors)
+        return "\\n".join(lines)
+    except Exception as exc:
+        return f"Could not create folders: {type(exc).__name__}: {exc}"
+
+
 def delete_file(path: str, name: str = "") -> str:
     try:
         base   = _resolve_path(path)
@@ -532,6 +593,9 @@ def file_controller(
 
         elif action == "create_folder":
             return create_folder(path, name=name)
+
+        elif action == "create_folders":
+            return create_folders(path, names=params.get("names", []))
 
         elif action == "delete":
             return delete_file(path, name=name)
