@@ -1270,7 +1270,7 @@ class CustomizeOverlay(QWidget):
         self._wheel.hue_committed.connect(self._on_wheel_commit)
 
         self._hex_input = QLineEdit(self._sel_color)
-        self._hex_input.setPlaceholderText("#00E5FF")
+        self._hex_input.setPlaceholderText("#A5B4FC")
         self._hex_input.setFont(QFont(FONT_MONO, 10))
         self._hex_input.setFixedHeight(30)
         self._hex_input.setStyleSheet(_fs)
