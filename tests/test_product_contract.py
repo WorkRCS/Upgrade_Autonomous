@@ -108,6 +108,13 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("Use action=channel when the user asks to search/find a channel", self.prompt)
         self.assertIn('"enum": ["play", "channel", "summarize", "get_info", "trending"]', self.main)
 
+    def test_filesystem_tasks_route_to_file_controller_not_code_helper(self):
+        self.assertIn('"create_folders"', self.main)
+        self.assertIn('"names":       {"type": "ARRAY"', self.main)
+        self.assertIn("ordinary file and folder management", self.main)
+        self.assertIn("Never call code_helper or dev_agent just to create/manage ordinary folders or files", self.prompt)
+        self.assertIn('action=create_folders', self.prompt)
+
     def test_documentation_explains_voice_and_key_management(self):
         self.assertIn("Kore", self.readme)
         self.assertIn("Orus", self.readme)
