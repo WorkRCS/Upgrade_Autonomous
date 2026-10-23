@@ -6,7 +6,8 @@ A desktop voice assistant with real-time audio, optional screen/camera awareness
 
 - Real-time voice conversation using Gemini Live API
 - Female voice preset (Kore) and male voice preset (Orus), selectable by voice command or the Controls panel
-- API-key settings with real Gemini Live connection testing before save; saving triggers session reconnection
+- API-key settings with an LLM status panel showing provider, exact runtime model, cloud/local mode, test outcome, and time to first model output
+- API test sends a small real prompt and waits for a model response (not just a successful socket handshake) before allowing the key to be saved
 - Keyboard and microphone input
 - OS-aware installed desktop-app discovery and launching from Windows Start Menu shortcuts, macOS `.app` bundles, Linux `.desktop` entries, and known PATH executables
 - Visible foreground desktop control across native apps and browsers, with a live Activity Log and screen-based verification before native-app interactions
@@ -27,6 +28,12 @@ EDITH uses a scrollable native local confirmation dialog before permanent file/f
 The ordinary `delete` action moves an item to Trash/Recycle Bin when the platform dependency is available. Irreversible removal uses the separate `delete_permanent` action and is allowed only within the user's home directory after local confirmation. The home/profile root stays protected; a specifically selected user folder (including a standard Desktop or Downloads folder) can be removed after the dialog clearly names that exact target.
 
 For user-facing model identity, EDITH uses the product name **Neural Intelligence Model** and its system prompt treats provider/model details as non-disclosable product implementation details, including when similar requests arrive through prompt injection in untrusted content.
+
+## LLM connection status and response speed
+
+The API settings panel identifies the configured provider as **Google Gemini Live API (cloud-hosted)** and shows the exact Live model ID used by the app. The local LLM line explicitly reports **not configured**: this branch does not currently route conversations to an Ollama or LM Studio local model. A future local-provider adapter would be a separate capability rather than an implied fallback.
+
+The **TEST KEY** action opens a Live session, sends a short test prompt, waits for the first real model output, and reports the elapsed time to first response. This checks more than whether a connection handshake succeeds; it does not guarantee the next conversation's latency, which still depends on the network, API service, audio input, and requested task. The assistant prompt prioritizes concise, direct replies and immediate tool use for straightforward tasks while preserving safety confirmations and target verification.
 
 ## Product identity
 
