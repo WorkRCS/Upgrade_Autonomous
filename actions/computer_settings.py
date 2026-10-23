@@ -657,6 +657,26 @@ def computer_settings(
                 f"Please confirm by calling again with confirmed=yes."
             )
 
+    if action in {"close_app", "close_window"}:
+        target = str(params.get("_confirmed_window_target") or "").strip()
+        if not target:
+            return "No confirmed app/window target was supplied; nothing was closed."
+        try:
+            from actions.computer_control import _focus_window
+            from actions.open_app import _active_window_description
+
+            focus_result = _focus_window(target)
+            if not focus_result.startswith("Focused window: "):
+                return f"Target window could not be focused; nothing was closed. {focus_result}"
+            current = _active_window_description()
+            if not current or not (
+                target.casefold() in current.casefold()
+                or current.casefold() in target.casefold()
+            ):
+                return "The requested target is not verified as the active window; nothing was closed."
+        except Exception as exc:
+            return f"Target window verification failed; nothing was closed ({type(exc).__name__})."
+
     if action == "volume_set":
         try:
             volume_set(int(value or 50))
