@@ -63,7 +63,7 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("/api/tags", self.ui)
         self.assertIn("/api/generate", self.ui)
         self.assertIn("is_loopback", self.ui)
-        self.assertIn("this does not change EDITH's active provider", self.ui)
+        self.assertIn("This does not change EDITH's active provider", self.ui)
 
     def test_prompt_includes_low_latency_behavior_without_skipping_safety(self):
         self.assertIn("LOW-LATENCY BEHAVIOR", self.prompt)
