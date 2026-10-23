@@ -83,6 +83,7 @@ BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
 LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+VOICE_PRESETS       = {"female": "Kore", "male": "Orus"}
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
@@ -91,6 +92,21 @@ CHUNK_SIZE          = 1024
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
+
+
+def _save_config_value(key: str, value) -> None:
+    """Atomically save one app setting without overwriting unrelated configuration."""
+    API_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            data = {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    data[key] = value
+    temp_path = API_CONFIG_PATH.with_suffix(".json.tmp")
+    temp_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    temp_path.replace(API_CONFIG_PATH)
 
 
 def _load_system_prompt() -> str:
@@ -111,6 +127,28 @@ def _clean_transcript(text: str) -> str:
     return text.strip()
 
 TOOL_DECLARATIONS = [
+    {
+        "name": "set_voice_mode",
+        "description": (
+            "Switch the assistant's output voice ONLY when the user explicitly requests a female/woman's "
+            "voice or male/man's voice. Understand these direct requests in ANY language, including "
+            "English and Bengali, and equivalent phrases such as 'female voice', 'speak like a woman', "
+            "'male voice', 'speak like a man', 'মেয়েদের কণ্ঠে কথা বলো', 'মেয়েলি ভয়েস', 'পুরুষ কণ্ঠ', "
+            "or 'ছেলেদের ভয়েস'. Choose mode=female for the female preset or mode=male for the male preset. "
+            "Do not call when a user is merely asking about voice options or discussing another person's voice."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "mode": {
+                    "type": "STRING",
+                    "enum": ["female", "male"],
+                    "description": "female = female output voice; male = male output voice",
+                },
+            },
+            "required": ["mode"],
+        },
+    },
     {
         "name": "open_app",
         "description": (
@@ -564,7 +602,19 @@ class JarvisLive:
 
     def __init__(self, ui: JarvisUI):
         self.ui             = ui
-        self._asst_name     = "AI Assistant"
+        self._asst_name     = "EDITH"
+        try:
+            _saved_cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            self._voice_mode = str(_saved_cfg.get("voice_mode") or "female").lower()
+        except Exception:
+            self._voice_mode = "female"
+        if self._voice_mode not in VOICE_PRESETS:
+            self._voice_mode = "female"
+        self._voice_confirmation: str | None = None
+        self._reconfigure_reason: str | None = None
+        self._reconfigure_event: asyncio.Event | None = None
+        self._api_key_update_event: asyncio.Event | None = None
+        self._connecting = False
         self.session              = None
         self.audio_in_queue       = None
         self.out_queue            = None
@@ -580,6 +630,9 @@ class JarvisLive:
         self._interrupted          = False   # True while draining audio after user interrupt
         self.ui.on_text_command   = self._on_text_command
         self.ui.on_remote_clicked = self._make_remote_key
+        self.ui._win.on_api_key_saved = self._request_api_key_reconnect
+        self.ui.on_voice_mode_clicked = self._request_voice_mode_from_ui
+        self.ui._win.voice_mode_signal.emit(self._voice_mode)
         self.ui.on_interrupt      = self.interrupt
         self._turn_done_event: asyncio.Event | None = None
         self._dashboard     = None
@@ -702,9 +755,12 @@ class JarvisLive:
             # Ignore any old/custom display name: product identity stays neutral.
             self._asst_name = "AI Assistant"
             _user_name = (_cfg.get("user_name") or "").strip()
+            voice_mode = str(_cfg.get("voice_mode") or self._voice_mode).strip().lower()
+            self._voice_mode = voice_mode if voice_mode in VOICE_PRESETS else "female"
         except Exception:
-            self._asst_name = "AI Assistant"
+            self._asst_name = "EDITH"
             _user_name = ""
+            self._voice_mode = "female"
 
         memory     = load_memory()
         mem_str    = format_memory_for_prompt(memory)
@@ -719,6 +775,11 @@ class JarvisLive:
         )
 
         # Identity injection — overrides any hardcoded name in prompt.txt
+        voice_style = (
+            "Use the configured female voice with confident, mature, warm, clear, and decisive delivery."
+            if self._voice_mode == "female"
+            else "Use the configured male voice with confident, mature, warm, clear, and decisive delivery."
+        )
         _addr = (
             f"Address the user by name only when a name is configured: '{_user_name}'."
             if _user_name else
@@ -727,8 +788,8 @@ class JarvisLive:
         identity_ctx = (
             "[IDENTITY]\n"
             "You are a professional, general-purpose AI assistant operating on the user's own device.\n"
-            f"Your display name is {self._asst_name}. Do not reference fictional characters, film franchises, or third-party product branding.\n"
-            "Use the configured feminine voice with confident, mature, warm, clear, and decisive delivery. Keep speech natural and concise; avoid theatrical role-play or long preambles.\n"
+            f"Your display name is {self._asst_name}. Do not imitate fictional characters or use third-party product branding.\n"
+            f"{voice_style} Keep speech natural and concise; avoid theatrical role-play or long preambles.\n"
             f"{_addr}\n\n"
         )
 
@@ -737,6 +798,7 @@ class JarvisLive:
             parts.append(mem_str)
         parts.append(sys_prompt)
 
+        voice_name = VOICE_PRESETS[self._voice_mode]
         cfg = dict(
             response_modalities=["AUDIO"],
             output_audio_transcription={},
@@ -752,7 +814,7 @@ class JarvisLive:
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Kore"
+                        voice_name=voice_name
                     )
                 )
             ),
@@ -764,6 +826,68 @@ class JarvisLive:
             cfg["enable_affective_dialog"] = True
             cfg["proactivity"] = types.ProactivityConfig(proactive_audio=True)
         return types.LiveConnectConfig(**cfg)
+
+    def _request_voice_mode_from_ui(self, mode: str) -> None:
+        """Thread-safe bridge from the desktop voice buttons to the Live event loop."""
+        if not self._loop or not self._loop.is_running():
+            try:
+                mode = str(mode).lower()
+                if mode not in VOICE_PRESETS:
+                    return
+                _save_config_value("voice_mode", mode)
+                self._voice_mode = mode
+                self.ui._win.voice_mode_signal.emit(mode)
+                self.ui.write_log(f"SYS: {mode.capitalize()} voice saved for the next session.")
+            except Exception as exc:
+                self.ui.write_log(f"ERR: Voice preference could not be saved ({type(exc).__name__}).")
+            return
+        asyncio.run_coroutine_threadsafe(self._set_voice_mode(mode), self._loop)
+
+    def _request_api_key_reconnect(self) -> None:
+        """Receive a key editor save event from the Qt thread without exposing the key."""
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._api_key_saved_on_loop(), self._loop)
+
+    async def _api_key_saved_on_loop(self) -> None:
+        if self._api_key_update_event:
+            self._api_key_update_event.set()
+        if self._connecting or self.session:
+            self._reconfigure_reason = "Gemini API key updated"
+            if self._reconfigure_event:
+                self._reconfigure_event.set()
+        self.ui.write_log("SYS: Tested API key saved; Gemini Live will use the updated key.")
+
+    async def _set_voice_mode(self, mode: str, defer_reconnect: bool = False) -> str:
+        mode = (mode or "").strip().lower()
+        if mode not in VOICE_PRESETS:
+            return "Voice mode must be female or male."
+        if mode == self._voice_mode:
+            self.ui._win.voice_mode_signal.emit(mode)
+            return f"The {mode} voice is already selected."
+        try:
+            _save_config_value("voice_mode", mode)
+        except Exception as exc:
+            return f"Could not save voice preference: {type(exc).__name__}."
+        self._voice_mode = mode
+        self.ui._win.voice_mode_signal.emit(mode)
+        self._voice_confirmation = (
+            f"The user's requested voice has now been changed to {mode}. "
+            "Confirm this very briefly and naturally in the user's language using the newly configured voice. "
+            "Do not mention technical reconnection or internal tools."
+        )
+        self._reconfigure_reason = f"voice changed to {mode}"
+        self.ui.write_log(
+            f"SYS: {mode.capitalize()} voice selected ({VOICE_PRESETS[mode]}); switching Live session."
+        )
+        if not defer_reconnect and self._reconfigure_event:
+            self._reconfigure_event.set()
+        return f"Saved the {mode} voice preference. Reconnecting so the new voice takes effect."
+
+    async def _watch_session_reconfigure(self) -> None:
+        if self._reconfigure_event is None:
+            return
+        await self._reconfigure_event.wait()
+        raise RuntimeError("Live session reconfiguration requested")
 
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
@@ -790,7 +914,10 @@ class JarvisLive:
         result = "Done."
 
         try:
-            if name == "open_app":
+            if name == "set_voice_mode":
+                result = await self._set_voice_mode(args.get("mode", ""), defer_reconnect=True)
+
+            elif name == "open_app":
                 r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
                 result = r or f"Opened {args.get('app_name')}."
 
@@ -1102,6 +1229,9 @@ class JarvisLive:
                         await self.session.send_tool_response(
                             function_responses=fn_responses
                         )
+                        # voiceName is fixed at Live setup, so reconnect after the tool response is delivered.
+                        if self._reconfigure_reason and self._reconfigure_event:
+                            self._reconfigure_event.set()
         except Exception as e:
             print(f"[Assistant] ❌ Recv: {e}")
             traceback.print_exc()
@@ -1475,6 +1605,8 @@ class JarvisLive:
 
     async def run(self):
         self._loop = asyncio.get_event_loop()
+        self._reconfigure_event = asyncio.Event()
+        self._api_key_update_event = asyncio.Event()
 
         # Start dashboard (optional — needs: pip install fastapi "uvicorn[standard]" cryptography)
         try:
@@ -1491,6 +1623,7 @@ class JarvisLive:
         while True:
             try:
                 print("[Assistant] Connecting...")
+                self._connecting = True
                 self.ui.set_state("THINKING")
                 config = self._build_config()
 
@@ -1507,6 +1640,7 @@ class JarvisLive:
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session          = session
+                    self._connecting       = False
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
@@ -1533,8 +1667,18 @@ class JarvisLive:
                     tg.create_task(self._run_system_monitor())
                     tg.create_task(self._run_background_monitor())
                     tg.create_task(self._run_proactive_mode())
+                    tg.create_task(self._watch_session_reconfigure())
                     if self._dashboard:
                         tg.create_task(self._relay_phone_audio())
+
+                    # Confirm a voice change only after the selected preset is connected.
+                    if self._voice_confirmation:
+                        voice_message = self._voice_confirmation
+                        self._voice_confirmation = None
+                        await session.send_client_content(
+                            turns={"parts": [{"text": voice_message}]},
+                            turn_complete=True,
+                        )
 
                     # Morning briefing — fires once per process launch (if enabled)
                     if not self._briefing_sent and get_brief_enabled():
@@ -1546,12 +1690,22 @@ class JarvisLive:
             except SystemExit:
                 raise
             except BaseException as e:
+                self._connecting = False
                 # Catches both Exception and BaseExceptionGroup (Python 3.11+
                 # TaskGroup raises BaseExceptionGroup when tasks are cancelled
                 # externally, which `except Exception` would miss, letting the
                 # exception escape the while-loop and causing asyncio.run() to
                 # start shutdown — resulting in "executor after shutdown" errors).
                 err_str = str(e)
+                if self._reconfigure_reason:
+                    reason = self._reconfigure_reason
+                    self._reconfigure_reason = None
+                    if self._reconfigure_event:
+                        self._reconfigure_event.clear()
+                    self._conn_backoff = 0
+                    self.ui.write_log(f"SYS: Applying {reason}; opening a fresh Gemini Live session.")
+                    continue
+
                 print(f"[Assistant] Error ({type(e).__name__}): {e}")
                 traceback.print_exc()
 
@@ -1572,13 +1726,15 @@ class JarvisLive:
 
                 # Invalid API key — stop hammering the API, prompt re-configuration
                 if "API key not valid" in err_str or "1007" in err_str:
-                    self.ui.write_log("ERR: API key invalid — please re-enter your key.")
+                    self.ui.write_log("ERR: Gemini rejected the saved API key. Test and save a replacement in Settings.")
                     self.ui.set_state("SLEEPING")
-                    self.ui.prompt_reconfig()
-                    while not self.ui._win._ready:
-                        await asyncio.sleep(1)
-                    print("[Assistant] New API key saved — reconnecting...")
-                    _conn_backoff = 3
+                    if self._api_key_update_event:
+                        self._api_key_update_event.clear()
+                    self.ui._win.open_api_key_settings_signal.emit()
+                    if self._api_key_update_event:
+                        await self._api_key_update_event.wait()
+                        self._api_key_update_event.clear()
+                    self._conn_backoff = 0
                     continue
 
                 # Network / timeout errors — log clearly and back off
@@ -1596,6 +1752,7 @@ class JarvisLive:
                 else:
                     self._conn_backoff = 3
             finally:
+                self._connecting = False
                 self.session = None
                 # Only save if there was a real conversation (≥3 turns)
                 if len(self._session_log) >= 3:
