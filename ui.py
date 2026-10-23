@@ -969,6 +969,223 @@ class _CameraPreview(QWidget):
         self._timer.start(6_000)   # auto-dismiss after 6 s
 
 
+class ApiKeyOverlay(QWidget):
+    """Real API-key editor. The Test action opens an actual Gemini Live session."""
+
+    saved = pyqtSignal()
+    _test_result = pyqtSignal(bool, str, str)
+
+    _OW, _OH = 500, 330
+
+    def __init__(self, current_key: str = "", parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            ApiKeyOverlay {{
+                background: rgba(16, 19, 28, 252);
+                border: 1px solid {C.BORDER_B};
+                border-radius: 12px;
+            }}
+        """)
+        self._tested_key = ""
+        self._test_running = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(10)
+
+        title = QLabel("GEMINI API KEY")
+        title.setFont(QFont(FONT_MAIN, 13, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
+        layout.addWidget(title)
+
+        desc = QLabel("Edit the saved key, verify it against Gemini Live, then save and reconnect.")
+        desc.setWordWrap(True)
+        desc.setFont(QFont(FONT_MAIN, 9))
+        desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        layout.addWidget(desc)
+
+        self._key_input = QLineEdit(current_key)
+        self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._key_input.setPlaceholderText("Paste Gemini API key")
+        self._key_input.setFont(QFont(FONT_MONO, 10))
+        self._key_input.setFixedHeight(38)
+        self._key_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {C.DARK}; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 6px; padding: 7px 10px;
+                selection-background-color: {C.PRI_GHO};
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        layout.addWidget(self._key_input)
+
+        if current_key:
+            key_hint = QLabel(f"Saved key loaded · ends in {current_key[-4:]}")
+        else:
+            key_hint = QLabel("No saved key found")
+        key_hint.setFont(QFont(FONT_MAIN, 8))
+        key_hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        layout.addWidget(key_hint)
+
+        self._status = QLabel("Test the key before saving it.")
+        self._status.setWordWrap(True)
+        self._status.setMinimumHeight(34)
+        self._status.setFont(QFont(FONT_MAIN, 9))
+        self._status.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        layout.addWidget(self._status)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        self._reveal_btn = QPushButton("SHOW")
+        self._reveal_btn.setFixedHeight(34)
+        self._reveal_btn.setStyleSheet(self._secondary_style())
+        self._reveal_btn.clicked.connect(self._toggle_reveal)
+        row.addWidget(self._reveal_btn)
+
+        self._test_btn = QPushButton("TEST KEY")
+        self._test_btn.setFixedHeight(34)
+        self._test_btn.setStyleSheet(self._secondary_style())
+        self._test_btn.clicked.connect(self._test_key)
+        row.addWidget(self._test_btn)
+
+        self._save_btn = QPushButton("SAVE & RECONNECT")
+        self._save_btn.setFixedHeight(34)
+        self._save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PRI}; color: {C.DARK}; font-weight: 700;
+                border: 1px solid {C.PRI}; border-radius: 6px; padding: 0 12px;
+            }}
+            QPushButton:disabled {{
+                background: {C.PANEL2}; color: {C.TEXT_DIM}; border-color: {C.BORDER};
+            }}
+        """)
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._save_key)
+        row.addWidget(self._save_btn)
+        layout.addLayout(row)
+
+        close_btn = QPushButton("CLOSE")
+        close_btn.setFixedHeight(28)
+        close_btn.setStyleSheet(self._secondary_style())
+        close_btn.clicked.connect(self.hide)
+        layout.addWidget(close_btn)
+
+        self._key_input.textChanged.connect(self._on_key_edited)
+        self._test_result.connect(self._finish_test)
+
+    @staticmethod
+    def _secondary_style() -> str:
+        return f"""
+            QPushButton {{
+                background: transparent; color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER}; border-radius: 6px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI_DIM}; }}
+            QPushButton:disabled {{ color: {C.TEXT_DIM}; border-color: {C.BORDER}; }}
+        """
+
+    def _toggle_reveal(self):
+        reveal = self._key_input.echoMode() == QLineEdit.EchoMode.Password
+        self._key_input.setEchoMode(
+            QLineEdit.EchoMode.Normal if reveal else QLineEdit.EchoMode.Password
+        )
+        self._reveal_btn.setText("HIDE" if reveal else "SHOW")
+
+    def _on_key_edited(self, _text: str):
+        self._tested_key = ""
+        self._save_btn.setEnabled(False)
+        if not self._test_running:
+            self._status.setText("Key changed. Test it before saving.")
+            self._status.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+
+    def _test_key(self):
+        key = self._key_input.text().strip()
+        if not key:
+            self._status.setText("Paste a key to test.")
+            return
+        if self._test_running:
+            return
+        self._test_running = True
+        self._test_btn.setEnabled(False)
+        self._save_btn.setEnabled(False)
+        self._status.setText("Connecting to Gemini Live to verify this key…")
+        self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
+        threading.Thread(target=self._probe_live_key, args=(key,), daemon=True).start()
+
+    def _probe_live_key(self, key: str):
+        try:
+            import asyncio
+            from google import genai
+            from google.genai import types
+
+            async def _probe():
+                client = genai.Client(
+                    api_key=key,
+                    http_options={"api_version": "v1beta"},
+                )
+                config = types.LiveConnectConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name="Achernar"
+                            )
+                        )
+                    ),
+                )
+                async with client.aio.live.connect(
+                    model="models/gemini-2.5-flash-native-audio-preview-12-2025",
+                    config=config,
+                ):
+                    return
+
+            asyncio.run(_probe())
+            message = "Live API connection succeeded. This key was accepted."
+            self._test_result.emit(True, message, key)
+        except Exception as exc:
+            detail = str(exc).replace(key, "[REDACTED]")[:180]
+            message = f"Live API test failed ({type(exc).__name__}). {detail}"
+            self._test_result.emit(False, message, key)
+
+    def _finish_test(self, ok: bool, message: str, key: str):
+        self._test_running = False
+        self._test_btn.setEnabled(True)
+        self._status.setText(message)
+        self._status.setStyleSheet(
+            f"color: {C.GREEN if ok else C.RED}; background: transparent;"
+        )
+        if ok and key == self._key_input.text().strip():
+            self._tested_key = key
+            self._save_btn.setEnabled(True)
+        else:
+            self._tested_key = ""
+            self._save_btn.setEnabled(False)
+
+    def _save_key(self):
+        key = self._key_input.text().strip()
+        if not key or key != self._tested_key:
+            self._status.setText("Test the exact key before saving.")
+            self._save_btn.setEnabled(False)
+            return
+        try:
+            data = _read_full_config()
+            data["gemini_api_key"] = key
+            tmp_path = API_FILE.with_suffix(".json.tmp")
+            tmp_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
+            tmp_path.replace(API_FILE)
+        except Exception as exc:
+            self._status.setText(f"Could not save API key: {type(exc).__name__}: {exc}")
+            self._status.setStyleSheet(f"color: {C.RED}; background: transparent;")
+            return
+
+        self._status.setText("Key saved. Reconnecting to Gemini Live…")
+        self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+        self.saved.emit()
+        self.hide()
+
+
 class SetupOverlay(QWidget):
     done = pyqtSignal(str, str)
 
@@ -1818,12 +2035,20 @@ class MainWindow(QMainWindow):
 
         self.on_text_command   = None
         self.on_remote_clicked = None   # callable: () -> (url, key) | None
-        self.on_interrupt      = None   # callable: () -> None — stop JARVIS mid-speech
+        self.on_api_key_saved  = None   # callback after a tested key is saved
+        self.on_voice_mode_clicked = None
+        self.on_interrupt      = None   # callable: () -> None — stop speech
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self._muted            = False
         self._current_file: str | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
         self._customize_overlay: CustomizeOverlay | None = None
+        self._api_key_overlay: ApiKeyOverlay | None = None
+        self._voice_mode = str(_cfg.get("voice_mode") or "female").lower()
+        if self._voice_mode not in {"female", "male"}:
+            self._voice_mode = "female"
+        self._voice_female_btn: QPushButton | None = None
+        self._voice_male_btn: QPushButton | None = None
 
         central = QWidget()
         central.setStyleSheet(f"background: {C.BG};")
@@ -2695,13 +2920,41 @@ class MainWindow(QMainWindow):
         self._autostart_btn.clicked.connect(self._toggle_autostart)
         lay.addWidget(self._autostart_btn)
 
-        cust_btn = QPushButton("⚙  CUSTOMISE ASSISTANT")
+        cust_btn = QPushButton("⚙  PREFERENCES & THEME")
         cust_btn.setFixedHeight(28)
         cust_btn.setFont(QFont(FONT_MAIN, 8))
         cust_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         cust_btn.setStyleSheet(_BTN_STYLE_DIM)
         cust_btn.clicked.connect(self._open_customize)
         lay.addWidget(cust_btn)
+
+        key_btn = QPushButton("KEY  GEMINI API KEY")
+        key_btn.setFixedHeight(30)
+        key_btn.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
+        key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        key_btn.setStyleSheet(_BTN_STYLE_DIM)
+        key_btn.clicked.connect(self._open_api_key_settings)
+        lay.addWidget(key_btn)
+
+        voice_hdr = QLabel("VOICE OUTPUT")
+        voice_hdr.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
+        voice_hdr.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        lay.addWidget(voice_hdr)
+
+        self._voice_female_btn = QPushButton("FEMALE VOICE")
+        self._voice_female_btn.setFixedHeight(28)
+        self._voice_female_btn.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
+        self._voice_female_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._voice_female_btn.clicked.connect(lambda: self._request_voice_mode("female"))
+        lay.addWidget(self._voice_female_btn)
+
+        self._voice_male_btn = QPushButton("MALE VOICE")
+        self._voice_male_btn.setFixedHeight(28)
+        self._voice_male_btn.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
+        self._voice_male_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._voice_male_btn.clicked.connect(lambda: self._request_voice_mode("male"))
+        lay.addWidget(self._voice_male_btn)
+        self._update_voice_buttons(self._voice_mode)
 
         self._brief_btn = QPushButton()
         self._brief_btn.setFixedHeight(28)
@@ -2720,6 +2973,60 @@ class MainWindow(QMainWindow):
 
         w.adjustSize()
         return w
+
+    def _request_voice_mode(self, mode: str):
+        mode = (mode or "").strip().lower()
+        if mode not in {"female", "male"}:
+            return
+        if not self.on_voice_mode_clicked:
+            self._log.append_log("SYS: Voice control is not connected yet.")
+            return
+        self.on_voice_mode_clicked(mode)
+
+    def set_voice_mode_display(self, mode: str):
+        mode = (mode or "").strip().lower()
+        if mode in {"female", "male"}:
+            self._voice_mode = mode
+            self._update_voice_buttons(mode)
+
+    def _update_voice_buttons(self, mode: str):
+        if not hasattr(self, "_voice_female_btn") or not self._voice_female_btn:
+            return
+        for name, btn in (("female", self._voice_female_btn), ("male", self._voice_male_btn)):
+            active = name == mode
+            btn.setText(f"{'●' if active else '○'}  {name.upper()} VOICE")
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {C.PRI_GHO if active else 'transparent'};
+                    color: {C.PRI if active else C.TEXT_MED};
+                    border: 1px solid {C.PRI_DIM if active else C.BORDER};
+                    border-radius: 5px; text-align: left; padding: 0 10px;
+                    font-weight: 700;
+                }}
+                QPushButton:hover {{ border-color: {C.PRI}; }}
+            """)
+
+    def _open_api_key_settings(self):
+        current = _read_full_config().get("gemini_api_key", "")
+        if self._api_key_overlay:
+            self._api_key_overlay.hide()
+        cw = self.centralWidget()
+        ov = ApiKeyOverlay(str(current or ""), parent=cw)
+        ov.saved.connect(self._on_api_key_saved)
+        ov.setGeometry(
+            max(8, (cw.width() - ApiKeyOverlay._OW) // 2),
+            max(8, (cw.height() - ApiKeyOverlay._OH) // 2),
+            min(ApiKeyOverlay._OW, cw.width() - 16),
+            min(ApiKeyOverlay._OH, cw.height() - 16),
+        )
+        ov.show()
+        ov.raise_()
+        self._api_key_overlay = ov
+
+    def _on_api_key_saved(self):
+        self._log.append_log("SYS: Gemini API key saved after Live API validation.")
+        if self.on_api_key_saved:
+            self.on_api_key_saved()
 
     def _toggle_drawer(self, checked: bool):
         if checked:
