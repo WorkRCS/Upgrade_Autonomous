@@ -45,6 +45,13 @@ class ConfirmationRequirementTests(unittest.TestCase):
         self.assertIn(secret, reason)
         self.assertIn("local confirmation dialog", reason)
 
+    def test_long_message_confirmation_keeps_full_body_available_for_review(self):
+        body = "x" * 5000
+        reason = confirmation_requirement(
+            "send_message", {"platform": "Telegram", "receiver": "Alex", "message_text": body}
+        )
+        self.assertIn(body, reason)
+
     def test_destructive_shell_commands_are_confirmed(self):
         commands = (
             "rm -rf /tmp/build",
