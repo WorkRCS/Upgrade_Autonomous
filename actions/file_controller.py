@@ -131,10 +131,10 @@ def list_files(path: str = "desktop", show_hidden: bool = False) -> str:
             if not show_hidden and item.name.startswith("."):
                 continue
             if item.is_dir():
-                items.append(f"📁 {item.name}/")
+                items.append(f"[DIR]  {item.name}/")
             else:
                 size = _format_size(item.stat().st_size)
-                items.append(f"📄 {item.name} ({size})")
+                items.append(f"[FILE] {item.name} ({size})
 
         if not items:
             return f"Directory is empty: {target.name}/"
@@ -195,6 +195,38 @@ def delete_file(path: str, name: str = "") -> str:
         return f"Permission denied: {path}"
     except Exception as e:
         return f"Could not delete: {e}"
+
+
+def delete_file_permanently(path: str, name: str = "") -> str:
+    """Irreversibly remove one explicitly named file/folder after dispatcher confirmation."""
+    try:
+        base = _resolve_path(path)
+        target = (base / name) if name else base
+        if not _is_safe_path(target):
+            return f"Access denied: {target}"
+        if not target.exists() and not target.is_symlink():
+            return f"Not found: {target.name}"
+
+        # Never allow deleting the home root or known top-level user folders.
+        protected = {
+            _get_desktop(), _get_downloads(), _get_documents(),
+            _get_pictures(), _get_music(), _get_videos(), Path.home()
+        }
+        if target.resolve() in {p.resolve() for p in protected}:
+            return f"Protected directory, cannot permanently delete: {target.name}"
+
+        if target.is_symlink():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        return f"Permanently deleted: {target.name}"
+
+    except PermissionError:
+        return f"Permission denied: {path}"
+    except Exception as e:
+        return f"Could not permanently delete: {type(e).__name__}"
 
 
 def move_file(path: str, name: str = "", destination: str = "") -> str:
@@ -339,7 +371,7 @@ def find_files(name: str = "", extension: str = "",
             if name and name.lower() not in item.name.lower():
                 continue
             size = _format_size(item.stat().st_size)
-            results.append(f"📄 {item.name} ({size}) — {item.parent}")
+            results.append(f"[FILE] {item.name} ({size}) — {item.parent}")
             if len(results) >= max_results:
                 break
 
@@ -505,6 +537,11 @@ def file_controller(
 
         elif action == "delete":
             return delete_file(path, name=name)
+
+        elif action in {"delete_permanent", "permanent_delete"}:
+            if not name:
+                return "Permanent deletion requires an explicit name so the target is unambiguous."
+            return delete_file_permanently(path, name=name)
 
         elif action == "move":
             return move_file(path, name=name, destination=params.get("destination", ""))
