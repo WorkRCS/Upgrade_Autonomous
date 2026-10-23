@@ -27,7 +27,7 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("self._face_px = None", self.ui)
         self.assertIn("def _build_assistant_icon(", self.ui)
         self.assertIn('config" / "assistant.ico"', self.ui)
-        self.assertNotIn("config" / "jarvis.ico", self.ui)
+        self.assertNotIn('config" / "jarvis.ico', self.ui)
 
     def test_gemini_model_is_preserved_and_voice_is_configured(self):
         self.assertIn('LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"', self.main)
