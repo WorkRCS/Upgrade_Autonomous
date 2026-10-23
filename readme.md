@@ -31,9 +31,11 @@ For user-facing model identity, EDITH uses the product name **Neural Intelligenc
 
 ## LLM connection status and response speed
 
-The API settings panel identifies the configured provider as **Google Gemini Live API (cloud-hosted)** and shows the exact Live model ID used by the app. The local LLM line explicitly reports **not configured**: this branch does not currently route conversations to an Ollama or LM Studio local model. A future local-provider adapter would be a separate capability rather than an implied fallback.
+The API settings panel identifies the active provider as **Google Gemini Live API (cloud-hosted)** and shows the exact Live model ID used by the app. The chat runtime in this branch does not automatically switch to a local model.
 
-The **TEST KEY** action opens a Live session, sends a short test prompt, waits for the first real model output, and reports the elapsed time to first response. This checks more than whether a connection handshake succeeds; it does not guarantee the next conversation's latency, which still depends on the network, API service, audio input, and requested task. The assistant prompt prioritizes concise, direct replies and immediate tool use for straightforward tasks while preserving safety confirmations and target verification.
+The **TEST KEY** action opens a Live session, sends a short test prompt, waits for the first real model output, and reports the elapsed time to first response. This checks more than whether a connection handshake succeeds; it does not guarantee the next conversation's latency, which still depends on the network, API service, audio input, and requested task.
+
+The optional **TEST LOCAL** control checks a local **Ollama** server at a loopback URL. It lists installed local models and runs a small inference request on one model, then reports whether a real response was generated and how long it took. This local check is diagnostic only: even if Ollama is reachable, EDITH's active chat provider remains Gemini until a local-provider adapter is implemented. For privacy, remote endpoints are rejected by the local check. The assistant prompt prioritizes concise, direct replies and immediate tool use for straightforward tasks while preserving safety confirmations and target verification.
 
 ## Product identity
 
