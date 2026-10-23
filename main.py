@@ -921,6 +921,41 @@ class JarvisLive:
         # A model-provided "confirmed" field never grants approval. The user must
         # approve the exact sensitive operation in EDITH's local UI on this turn.
         confirmation_reason = confirmation_requirement(name, args)
+        if confirmation_reason and name == "computer_settings" and (
+            confirmation_reason.startswith("Close/terminate") or confirmation_reason.startswith("Close the window")
+        ):
+            try:
+                from core.action_guard import _explicit_window_target
+                from actions.open_app import _active_window_description
+
+                requested_target = _explicit_window_target(args)
+                if not requested_target:
+                    requested_target = await asyncio.to_thread(_active_window_description)
+                if not requested_target:
+                    result = (
+                        "Could not identify the exact app/window to close. Nothing was closed; "
+                        "please name the app or window explicitly."
+                    )
+                    if not self.ui.muted:
+                        self.ui.set_state("LISTENING")
+                    self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
+                    return types.FunctionResponse(
+                        id=fc.id, name=name,
+                        response={"result": result},
+                    )
+                args["_confirmation_window_target"] = requested_target
+                confirmation_reason = confirmation_requirement(name, args)
+            except Exception as exc:
+                print(f"[Confirmation] Window target unavailable: {type(exc).__name__}")
+                result = "Could not identify the exact window target; nothing was closed."
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
+                return types.FunctionResponse(
+                    id=fc.id, name=name,
+                    response={"result": result},
+                )
+
         if confirmation_reason:
             self.ui.write_log(f"ACTIVITY CONFIRMATION REQUIRED: {activity_label}")
             try:
@@ -944,6 +979,10 @@ class JarvisLive:
                 )
 
             self.ui.write_log(f"ACTIVITY CONFIRMED: {activity_label}")
+            if name == "computer_settings" and (
+                confirmation_reason.startswith("Close/terminate") or confirmation_reason.startswith("Close the window")
+            ):
+                args["_confirmed_window_target"] = args.get("_confirmation_window_target", "")
             # computer_settings has its own guard for power actions; set this
             # internal flag only after the real UI dialog was approved.
             if name == "computer_settings" and str(args.get("action") or "").lower().replace("-", "_") in {"restart", "shutdown"}:
