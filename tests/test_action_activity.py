@@ -34,6 +34,26 @@ class ActionActivityTests(unittest.TestCase):
         self.assertNotIn("private", label)
         self.assertNotIn("section", label)
 
+    def test_app_name_filter_matches_multiple_words_and_deduplicates(self):
+        from actions.open_app import filter_app_names
+
+        result = filter_app_names(
+            ["Docker Desktop", "Docker Desktop", "MongoDB Compass", "Postman", "Android Studio"],
+            query="mongo compass",
+            limit=10,
+        )
+        self.assertEqual(result, ["MongoDB Compass"])
+
+    def test_app_name_filter_caps_results_and_ignores_empty_names(self):
+        from actions.open_app import filter_app_names
+
+        result = filter_app_names(["", "Postman", "Docker", "Android Studio"], limit=2)
+        self.assertEqual(result, ["Android Studio", "Docker"])
+
+    def test_app_discovery_activity_does_not_claim_launch(self):
+        label = describe_tool_activity("open_app", {"action": "list"})
+        self.assertIn("Discover installed desktop app launchers", label)
+
     def test_results_are_classified_without_echoing_contents(self):
         self.assertEqual(activity_outcome("Opened WhatsApp."), "ok")
         self.assertEqual(activity_outcome("Could not launch app."), "error")
