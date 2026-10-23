@@ -63,6 +63,14 @@ class ActionActivityTests(unittest.TestCase):
         label = describe_tool_activity("open_app", {"action": "list"})
         self.assertIn("Discover installed desktop app launchers", label)
 
+    def test_foreground_verification_rejects_short_unrelated_titles(self):
+        from actions import open_app as app_module
+
+        with patch.object(app_module, "_SYSTEM", "Windows"):
+            self.assertFalse(
+                app_module._foreground_matches("WhatsApp", "WhatsApp", "W")
+            )
+
     def test_open_app_only_claims_launch_when_foreground_matches(self):
         from actions import open_app as app_module
 
