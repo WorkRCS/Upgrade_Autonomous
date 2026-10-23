@@ -71,6 +71,14 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("jarvis_device_token", self.login)
         self.assertIn("speaker === 'jarvis'", self.app)
 
+    def test_cross_app_discovery_and_visible_screen_verification_are_wired(self):
+        self.assertIn('"name": "open_app"', self.main)
+        self.assertIn('"enum": ["open", "list", "search"]', self.main)
+        self.assertIn('"force": {"type": "BOOLEAN"', self.main)
+        self.assertIn('self.ui.show_content("INSTALLED DESKTOP APPS", result)', self.main)
+        self.assertIn('force=true', self.prompt)
+        self.assertIn("computer_control affects the actual foreground desktop", self.prompt)
+
     def test_documentation_explains_voice_and_key_management(self):
         self.assertIn("Kore", self.readme)
         self.assertIn("Orus", self.readme)
