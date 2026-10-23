@@ -912,6 +912,9 @@ class JarvisLive:
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
+        # Internal foreground-target fields are dispatcher-owned, never model-authorized.
+        args.pop("_confirmation_window_target", None)
+        args.pop("_confirmed_window_target", None)
 
         activity_label = describe_tool_activity(name, args)
         print(f"[Assistant] 🔧 {name} — {activity_label}")
@@ -921,9 +924,21 @@ class JarvisLive:
         # A model-provided "confirmed" field never grants approval. The user must
         # approve the exact sensitive operation in EDITH's local UI on this turn.
         confirmation_reason = confirmation_requirement(name, args)
-        if confirmation_reason and name == "computer_settings" and (
-            confirmation_reason.startswith("Close/terminate") or confirmation_reason.startswith("Close the window")
-        ):
+        close_confirmation = bool(
+            confirmation_reason and name == "computer_settings"
+            and (
+                confirmation_reason.startswith("Close/terminate")
+                or confirmation_reason.startswith("Close the window")
+            )
+        )
+        restore_foreground = bool(
+            confirmation_reason and name in {"computer_control", "computer_settings"}
+            and not (
+                name == "computer_settings"
+                and str(args.get("action") or "").lower().replace("-", "_") in {"restart", "shutdown"}
+            )
+        )
+        if close_confirmation:
             try:
                 from core.action_guard import _explicit_window_target
                 from actions.open_app import _active_window_description
@@ -939,10 +954,7 @@ class JarvisLive:
                     if not self.ui.muted:
                         self.ui.set_state("LISTENING")
                     self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
-                    return types.FunctionResponse(
-                        id=fc.id, name=name,
-                        response={"result": result},
-                    )
+                    return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
                 args["_confirmation_window_target"] = requested_target
                 confirmation_reason = confirmation_requirement(name, args)
             except Exception as exc:
@@ -951,10 +963,30 @@ class JarvisLive:
                 if not self.ui.muted:
                     self.ui.set_state("LISTENING")
                 self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
-                return types.FunctionResponse(
-                    id=fc.id, name=name,
-                    response={"result": result},
-                )
+                return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+        elif restore_foreground:
+            # The local approval dialog becomes the foreground window. Capture the
+            # intended target now and restore it only after the user approves.
+            try:
+                from actions.open_app import _active_window_description
+                foreground = await asyncio.to_thread(_active_window_description)
+                if not foreground:
+                    result = (
+                        "Could not identify the target desktop window before this operation. "
+                        "Nothing was executed; specify the target app/window explicitly."
+                    )
+                    if not self.ui.muted:
+                        self.ui.set_state("LISTENING")
+                    self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
+                    return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                args["_confirmation_window_target"] = foreground
+                confirmation_reason += f"\nTarget desktop window: {foreground}"
+            except Exception as exc:
+                result = f"Could not identify the target desktop window ({type(exc).__name__}); nothing was executed."
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
+                return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
 
         if confirmation_reason:
             self.ui.write_log(f"ACTIVITY CONFIRMATION REQUIRED: {activity_label}")
@@ -979,10 +1011,8 @@ class JarvisLive:
                 )
 
             self.ui.write_log(f"ACTIVITY CONFIRMED: {activity_label}")
-            if name == "computer_settings" and (
-                confirmation_reason.startswith("Close/terminate") or confirmation_reason.startswith("Close the window")
-            ):
-                args["_confirmed_window_target"] = args.get("_confirmation_window_target", "")
+            if args.get("_confirmation_window_target"):
+                args["_confirmed_window_target"] = args.pop("_confirmation_window_target")
             # computer_settings has its own guard for power actions; set this
             # internal flag only after the real UI dialog was approved.
             if name == "computer_settings" and str(args.get("action") or "").lower().replace("-", "_") in {"restart", "shutdown"}:
