@@ -1271,9 +1271,7 @@ class ApiKeyOverlay(QWidget):
             latency_ms = int((time.perf_counter() - started) * 1000)
             if not answer:
                 raise RuntimeError(f"Local model '{model_name}' returned an empty response.")
-            self._local_test_result.emit(
-                True, f"Local Ollama model '{model_name}' generated a response.", endpoint, latency_ms
-            )
+            self._local_test_result.emit(True, model_name, endpoint, latency_ms)
         except Exception as exc:
             # Keep the status useful without exposing request payloads or local file data.
             if isinstance(exc, TimeoutError):
@@ -1293,13 +1291,13 @@ class ApiKeyOverlay(QWidget):
             self._local_latency_status.setText("LOCAL MODEL RESPONSE  —")
             return
         if ok:
-            self._local_info.setText("LOCAL OLLAMA  ONLINE · INFERENCE SUCCEEDED")
+            self._local_info.setText(f"LOCAL OLLAMA  ONLINE · {message}")
             self._local_info.setStyleSheet(
                 f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
             )
             self._local_latency_status.setText(f"LOCAL MODEL RESPONSE  {latency_ms} ms")
-            self._local_latency_status.setToolTip(message)
-            self._local_info.setToolTip(message)
+            self._local_latency_status.setToolTip(f"Local model '{message}' generated a response.")
+            self._local_info.setToolTip(f"Local model '{message}' generated a response.")
         else:
             self._local_info.setText("LOCAL OLLAMA  UNAVAILABLE · SEE DETAILS")
             self._local_info.setStyleSheet(
