@@ -539,8 +539,10 @@ def file_controller(
             return delete_file(path, name=name)
 
         elif action in {"delete_permanent", "permanent_delete"}:
-            if not name:
-                return "Permanent deletion requires an explicit name so the target is unambiguous."
+            shortcut_roots = {"desktop", "downloads", "documents", "pictures", "music", "videos", "home"}
+            raw_path = str(path or "").strip().strip("\\").strip("/")
+            if not name and raw_path.casefold() in shortcut_roots:
+                return "Permanent deletion requires a specific file/folder path or a name under a parent folder."
             return delete_file_permanently(path, name=name)
 
         elif action == "move":
