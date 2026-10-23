@@ -45,6 +45,11 @@ def describe_tool_activity(tool_name: str, args: dict | None = None) -> str:
     action = _clean(p.get("action", ""), 30).lower()
 
     if name == "open_app":
+        if action in {"list", "list_installed", "discover"}:
+            return "Discover installed desktop app launchers"
+        if action in {"search", "find"}:
+            query = _clean(p.get("query") or p.get("app_name") or "", 65)
+            return f"Search installed desktop app launchers{f': {query}' if query else ''}"
         return f"Open desktop app: {_clean(p.get('app_name') or 'unspecified app', 70)}"
 
     if name == "browser_control":
@@ -144,7 +149,11 @@ def activity_outcome(result: object) -> str:
     text = str(result or "").strip().lower()
     if not text:
         return "warning"
-    if "launch request submitted" in text or "could not verify that it opened" in text:
+    if (
+        "launch request submitted" in text
+        or "could not verify that it opened" in text
+        or "not confirmed as the foreground window" in text
+    ):
         return "warning"
     failures = (
         "failed", "error:", "could not", "unknown tool", "unknown action",
