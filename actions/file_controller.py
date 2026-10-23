@@ -228,7 +228,7 @@ def create_folders(path: str, names: list[str] | None = None) -> str:
         lines.extend(f"Created: {name}" for name in created)
         lines.extend(f"Already existed: {name}" for name in existing)
         lines.extend(f"Failed: {error}" for error in errors)
-        return "\\n".join(lines)
+        return "\n".join(lines)
     except Exception as exc:
         return f"Could not create folders: {type(exc).__name__}: {exc}"
 
