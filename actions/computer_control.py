@@ -256,57 +256,126 @@ def _clear_field() -> str:
     return "Field cleared"
 
 def _focus_window(title: str) -> str:
+    """Focus a window whose title matches the target, without shell interpolation."""
+    target = str(title or "").strip()
+    if not target:
+        return "No target window was provided."
     os_name = _get_os()
+    needle = target.casefold()
 
     if os_name == "windows":
         try:
-            script = f'(New-Object -ComObject WScript.Shell).AppActivate("{title}")'
-            subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                capture_output=True, timeout=5, **_WIN_HIDE,
-            )
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            matches = []
+
+            def _read_title(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length <= 0:
+                    return ""
+                buffer = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buffer, len(buffer))
+                return buffer.value.strip()
+
+            callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+            def _enum_callback(hwnd, _lparam):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                window_title = _read_title(hwnd)
+                if window_title and needle in window_title.casefold():
+                    score = 0 if window_title.casefold() == needle else 1
+                    matches.append((score, len(window_title), hwnd, window_title))
+                return True
+
+            user32.EnumWindows(callback_type(_enum_callback), 0)
+            if not matches:
+                return f"No visible window matched: {target[:100]}."
+            matches.sort(key=lambda item: (item[0], item[1]))
+            _score, _length, hwnd, matched_title = matches[0]
+            if user32.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
             time.sleep(0.3)
-            return f"Focused window: {title}"
+            active_title = _read_title(user32.GetForegroundWindow())
+            if needle in active_title.casefold():
+                return f"Focused window: {active_title}"
+            return f"Could not verify the target window became active: {matched_title[:100]}"
         except Exception as e:
-            return f"focus_window (Windows) failed: {e}"
+            return f"focus_window (Windows) failed: {type(e).__name__}"
 
     if os_name == "mac":
+        # Static AppleScript; the target comes through argv, never through source interpolation.
         script = (
-            f'tell application "System Events" to '
-            f'set frontmost of (first process whose name contains "{title}") to true'
+            "on run argv\n"
+            "set wantedName to item 1 of argv\n"
+            "tell application \"System Events\"\n"
+            "set matchingProcesses to every application process whose name contains wantedName\n"
+            "if (count of matchingProcesses) is 0 then return \"\"\n"
+            "set targetProcess to item 1 of matchingProcesses\n"
+            "set frontmost of targetProcess to true\n"
+            "return name of targetProcess\n"
+            "end tell\n"
+            "end run"
         )
         try:
-            subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True, timeout=5,
+            result = subprocess.run(
+                ["osascript", "-e", script, target],
+                capture_output=True, text=True, timeout=5,
             )
-            time.sleep(0.3)
-            return f"Focused window: {title}"
+            matched = result.stdout.strip()
+            if result.returncode == 0 and matched and needle in matched.casefold():
+                time.sleep(0.3)
+                return f"Focused window: {matched}"
+            return f"No visible application matched: {target[:100]}."
         except Exception as e:
-            return f"focus_window (macOS) failed: {e}"
+            return f"focus_window (macOS) failed: {type(e).__name__}"
 
     if os_name == "linux":
-        try:
-            result = subprocess.run(
-                ["wmctrl", "-a", title],
-                capture_output=True, timeout=5,
-            )
-            if result.returncode == 0:
-                time.sleep(0.3)
-                return f"Focused window: {title}"
-        except FileNotFoundError:
-            pass
-        try:
-            result = subprocess.run(
-                ["xdotool", "search", "--name", title, "windowactivate"],
-                capture_output=True, timeout=5,
-            )
-            time.sleep(0.3)
-            return f"Focused window: {title}"
-        except FileNotFoundError:
-            return "focus_window (Linux) requires wmctrl or xdotool"
-        except Exception as e:
-            return f"focus_window (Linux) failed: {e}"
+        # Both commands use argument arrays; a title is never passed to a shell.
+        if shutil.which("wmctrl"):
+            try:
+                result = subprocess.run(
+                    ["wmctrl", "-a", target],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode == 0:
+                    time.sleep(0.3)
+                    if shutil.which("xdotool"):
+                        active = subprocess.run(
+                            ["xdotool", "getactivewindow", "getwindowname"],
+                            capture_output=True, text=True, timeout=3,
+                        ).stdout.strip()
+                        if active and needle in active.casefold():
+                            return f"Focused window: {active}"
+                    else:
+                        return f"Focused window: {target}"
+            except Exception:
+                pass
+        if shutil.which("xdotool"):
+            try:
+                result = subprocess.run(
+                    ["xdotool", "search", "--name", target],
+                    capture_output=True, text=True, timeout=5,
+                )
+                window_ids = [v.strip() for v in result.stdout.splitlines() if v.strip()]
+                if window_ids:
+                    activated = subprocess.run(
+                        ["xdotool", "windowactivate", "--sync", window_ids[0]],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if activated.returncode == 0:
+                        time.sleep(0.3)
+                        active = subprocess.run(
+                            ["xdotool", "getactivewindow", "getwindowname"],
+                            capture_output=True, text=True, timeout=3,
+                        ).stdout.strip()
+                        if active and needle in active.casefold():
+                            return f"Focused window: {active}"
+            except Exception as e:
+                return f"focus_window (Linux) failed: {type(e).__name__}"
+        return f"Could not find/focus a matching window: {target[:100]}."
 
     return f"focus_window: unknown OS '{os_name}'"
 
