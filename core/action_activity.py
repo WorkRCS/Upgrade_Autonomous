@@ -144,6 +144,8 @@ def activity_outcome(result: object) -> str:
     text = str(result or "").strip().lower()
     if not text:
         return "warning"
+    if "launch request submitted" in text or "could not verify that it opened" in text:
+        return "warning"
     failures = (
         "failed", "error:", "could not", "unknown tool", "unknown action",
         "not available", "not installed", "timed out", "permission denied",
