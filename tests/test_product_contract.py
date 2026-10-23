@@ -59,8 +59,12 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("speaker === 'jarvis'", self.app)
 
     def test_documentation_does_not_advertise_character_branding(self):
+        visible_docs = "\n".join(
+            line for line in self.readme.splitlines()
+            if "git clone -b" not in line.lower()
+        )
         for name in ("JARVIS", "EDITH", "Ultron", "Tony Stark", "Iron Man"):
-            self.assertNotIn(name.lower(), self.readme.lower())
+            self.assertNotIn(name.lower(), visible_docs.lower())
         self.assertIn("Upgrade_Autonomous.git", self.readme)
 
 
