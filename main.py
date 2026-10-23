@@ -987,6 +987,16 @@ class JarvisLive:
                         self.ui.set_state("LISTENING")
                     self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
                     return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                foreground_key = foreground.casefold()
+                if "edith" in foreground_key or "personal assistant" in foreground_key:
+                    result = (
+                        "The EDITH window is currently active, so I will not type a destructive command into it. "
+                        "Focus the intended target app/terminal, then repeat the request."
+                    )
+                    if not self.ui.muted:
+                        self.ui.set_state("LISTENING")
+                    self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — EDITH is foreground")
+                    return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
                 args["_confirmation_window_target"] = foreground
                 confirmation_reason += f"\nTarget desktop window: {foreground}"
             except Exception as exc:
@@ -1023,8 +1033,16 @@ class JarvisLive:
                 args["_confirmed_window_target"] = args.pop("_confirmation_window_target")
             # computer_settings has its own guard for power actions; set this
             # internal flag only after the real UI dialog was approved.
-            if name == "computer_settings" and str(args.get("action") or "").lower().replace("-", "_") in {"restart", "shutdown"}:
-                args["confirmed"] = "yes"
+            if name == "computer_settings":
+                selected_action = str(args.get("action") or "").lower().replace("-", "_")
+                if selected_action not in {"restart", "shutdown"}:
+                    if confirmation_reason.startswith("Restart this computer?"):
+                        selected_action = "restart"
+                    elif confirmation_reason.startswith("Shut down this computer?"):
+                        selected_action = "shutdown"
+                if selected_action in {"restart", "shutdown"}:
+                    args["action"] = selected_action
+                    args["confirmed"] = "yes"
 
         if name == "save_memory":
             category = args.get("category", "notes")
