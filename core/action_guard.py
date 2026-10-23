@@ -146,6 +146,14 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
                     "Confirm only after the current screen shows the intended target."
                 )
 
+    if name in {"browser_control", "computer_control", "computer_settings"}:
+        key_name = _text(p.get("key") or p.get("value") or "", 40).lower().replace(" ", "_")
+        if action in {"press_key", "key_press", "press"} and key_name in {"delete", "del", "shift+delete", "shift_del"}:
+            return (
+                f"Press the {key_name} key in the current app? This may remove the selected item. "
+                "Confirm only after checking the visible target."
+            )
+
     if (
         name in {"browser_control", "computer_control", "computer_settings"}
         and action in {"type", "smart_type", "paste", "type_text", "write_on_screen", "write"}
