@@ -1005,6 +1005,7 @@ class ApiKeyOverlay(QWidget):
 
     saved = pyqtSignal()
     _test_result = pyqtSignal(bool, str, str, int)
+    _local_connection_result = pyqtSignal(bool, str, str, str, str)
     _local_test_result = pyqtSignal(bool, str, str, int)
 
     _OW, _OH = 560, 520
@@ -1022,6 +1023,9 @@ class ApiKeyOverlay(QWidget):
         self._tested_key = ""
         self._test_running = False
         self._local_test_running = False
+        self._local_provider = "ollama"
+        self._local_url = "http://localhost:11434"
+        self._local_model = "llama3.2"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
@@ -1048,11 +1052,15 @@ class ApiKeyOverlay(QWidget):
 
         self._provider_info = QLabel("PROVIDER  Google Gemini Live API · cloud-hosted")
         self._model_info = QLabel("MODEL  models/gemini-2.5-flash-native-audio-preview-12-2025")
-        self._local_info = QLabel("LOCAL OLLAMA  NOT TESTED · optional local model check")
-        self._connection_status = QLabel("LAST TEST  NOT TESTED")
-        self._latency_status = QLabel("TIME TO FIRST MODEL RESPONSE  —")
-        self._local_latency_status = QLabel("LOCAL MODEL RESPONSE  —")
-        for info in (self._provider_info, self._model_info, self._local_info,
+        self._local_provider_info = QLabel("LOCAL AGENT PROVIDER  CHECKING CONFIG…")
+        self._local_model_info = QLabel("LOCAL AGENT MODEL  —")
+        self._local_url_info = QLabel("LOCAL AGENT ENDPOINT  —")
+        self._local_info = QLabel("LOCAL AGENT CONNECTION  CHECKING…")
+        self._connection_status = QLabel("CLOUD API LAST TEST  NOT TESTED")
+        self._latency_status = QLabel("CLOUD MODEL FIRST RESPONSE  —")
+        self._local_latency_status = QLabel("LOCAL MODEL INFERENCE  NOT TESTED")
+        for info in (self._provider_info, self._model_info, self._local_provider_info,
+                     self._local_model_info, self._local_url_info, self._local_info,
                      self._connection_status, self._latency_status, self._local_latency_status):
             info.setWordWrap(True)
             info.setFont(QFont(FONT_MAIN, 8, QFont.Weight.DemiBold))
@@ -1063,31 +1071,17 @@ class ApiKeyOverlay(QWidget):
         )
         layout.addWidget(status_card)
 
-        local_url = str(_read_full_config().get("ollama_base_url") or "http://127.0.0.1:11434")
         local_row = QHBoxLayout()
         local_row.setSpacing(8)
-        self._local_endpoint = QLineEdit(local_url)
-        self._local_endpoint.setPlaceholderText("Ollama local URL · http://127.0.0.1:11434")
-        self._local_endpoint.setFont(QFont(FONT_MONO, 8))
-        self._local_endpoint.setFixedHeight(32)
-        self._local_endpoint.setStyleSheet(f"""
-            QLineEdit {{
-                background: {C.DARK}; color: {C.TEXT};
-                border: 1px solid {C.BORDER}; border-radius: 6px; padding: 5px 8px;
-                selection-background-color: {C.PRI_GHO};
-            }}
-            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
-        """)
-        local_row.addWidget(self._local_endpoint, 1)
-        self._local_test_btn = QPushButton("TEST LOCAL")
+        self._local_test_btn = QPushButton("TEST LOCAL LLM")
         self._local_test_btn.setFixedHeight(32)
         self._local_test_btn.setStyleSheet(self._secondary_style())
-        self._local_test_btn.setToolTip("Check a local Ollama server and run a short test inference. This does not change EDITH's active provider.")
-        self._local_test_btn.clicked.connect(self._test_local_ollama)
+        self._local_test_btn.setToolTip("Run a real inference request through EDITH's existing core.llm_client configuration.")
+        self._local_test_btn.clicked.connect(self._test_local_llm)
         local_row.addWidget(self._local_test_btn)
         layout.addLayout(local_row)
 
-        local_hint = QLabel("Optional local Ollama check · tests local inference only; chat still uses Gemini cloud.")
+        local_hint = QLabel("Uses the existing llm_provider / llm_url / llm_model settings from config/api_keys.json. Server reachability and a real model response are checked separately.")
         local_hint.setWordWrap(True)
         local_hint.setFont(QFont(FONT_MAIN, 8))
         local_hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
@@ -1161,9 +1155,13 @@ class ApiKeyOverlay(QWidget):
         layout.addWidget(close_btn)
 
         self._key_input.textChanged.connect(self._on_key_edited)
-        self._local_endpoint.textChanged.connect(self._on_local_endpoint_edited)
         self._test_result.connect(self._finish_test)
+        self._local_connection_result.connect(self._finish_local_connection)
         self._local_test_result.connect(self._finish_local_test)
+        self._refresh_local_llm_config()
+        threading.Thread(target=self._probe_local_connection, args=(
+            self._local_provider, self._local_url, self._local_model
+        ), daemon=True).start()
 
     @staticmethod
     def _secondary_style() -> str:
@@ -1176,136 +1174,191 @@ class ApiKeyOverlay(QWidget):
             QPushButton:disabled {{ color: {C.TEXT_DIM}; border-color: {C.BORDER}; }}
         """
 
-    def _on_local_endpoint_edited(self, _text: str):
-        if self._local_test_running:
-            return
-        self._local_info.setText("LOCAL OLLAMA  NOT TESTED · endpoint changed")
-        self._local_info.setStyleSheet(
-            f"color: {C.TEXT_DIM}; background: transparent; border: none; font-weight: 700;"
-        )
-        self._local_latency_status.setText("LOCAL MODEL RESPONSE  —")
-
-    def _test_local_ollama(self):
-        endpoint = self._local_endpoint.text().strip().rstrip("/")
-        if not endpoint:
-            self._local_info.setText("LOCAL OLLAMA  ENTER A LOCAL URL")
-            self._local_info.setStyleSheet(
-                f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
-            )
-            return
-        if self._local_test_running:
-            return
-        self._local_test_running = True
-        self._local_test_btn.setEnabled(False)
-        self._local_info.setText("LOCAL OLLAMA  CHECKING SERVER AND MODEL…")
-        self._local_info.setStyleSheet(
-            f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
-        )
-        self._local_latency_status.setText("LOCAL MODEL RESPONSE  measuring…")
-        threading.Thread(
-            target=self._probe_local_ollama, args=(endpoint,), daemon=True
-        ).start()
-
-    def _probe_local_ollama(self, endpoint: str):
-        latency_ms = -1
+    def _refresh_local_llm_config(self) -> tuple[str, str, str]:
+        """Read the same LLM provider, URL and model that core.llm_client uses."""
         try:
-            import ipaddress
-            from urllib.parse import urlsplit
-            from urllib.request import Request, urlopen
+            from core.llm_client import get_llm_provider, get_llm_settings
 
-            parsed = urlsplit(endpoint)
-            host = parsed.hostname or ""
-            if (
-                parsed.scheme.lower() != "http"
-                or not host
-                or parsed.username is not None
-                or parsed.password is not None
-                or parsed.query
-                or parsed.fragment
-                or parsed.path not in {"", "/"}
-            ):
-                raise ValueError("Use a plain local URL such as http://127.0.0.1:11434.")
-            is_loopback = host.lower() == "localhost"
-            if not is_loopback:
-                try:
-                    is_loopback = ipaddress.ip_address(host).is_loopback
-                except ValueError:
-                    is_loopback = False
-            if not is_loopback:
-                raise ValueError("For privacy, the local model check only accepts localhost/loopback URLs.")
-
-            base_url = f"http://{parsed.netloc}"
-
-            def _request_json(url: str, payload: dict | None = None, timeout: float = 3.0) -> dict:
-                body = None if payload is None else json.dumps(payload).encode("utf-8")
-                req = Request(
-                    url,
-                    data=body,
-                    headers={"Content-Type": "application/json"} if body is not None else {},
-                    method="GET" if body is None else "POST",
-                )
-                with urlopen(req, timeout=timeout) as response:
-                    result = json.loads(response.read().decode("utf-8"))
-                if not isinstance(result, dict):
-                    raise RuntimeError("Local server returned an unexpected response.")
-                return result
-
-            tags = _request_json(base_url + "/api/tags", timeout=3.0)
-            models = tags.get("models") or []
-            model_name = next(
-                (str(item.get("name") or item.get("model") or "").strip()
-                 for item in models if isinstance(item, dict)
-                 and str(item.get("name") or item.get("model") or "").strip()),
-                "",
-            )
-            if not model_name:
-                raise RuntimeError("Ollama is reachable, but no local model is installed.")
-
-            started = time.perf_counter()
-            generated = _request_json(
-                base_url + "/api/generate",
-                {"model": model_name, "prompt": "Reply with only the word OK.", "stream": False},
-                timeout=45.0,
-            )
-            answer = str(generated.get("response") or "").strip()
-            latency_ms = int((time.perf_counter() - started) * 1000)
-            if not answer:
-                raise RuntimeError(f"Local model '{model_name}' returned an empty response.")
-            self._local_test_result.emit(True, model_name, endpoint, latency_ms)
+            provider = get_llm_provider()
+            url, model = get_llm_settings()
+            self._local_provider = str(provider or "ollama").strip().lower()
+            self._local_url = str(url or "").rstrip("/")
+            self._local_model = str(model or "").strip()
         except Exception as exc:
-            # Keep the status useful without exposing request payloads or local file data.
-            if isinstance(exc, TimeoutError):
-                detail = "Timed out waiting for the local server/model. It may be loading or too large for available hardware."
-            else:
-                detail = f"{type(exc).__name__}: {str(exc)[:130]}"
-            self._local_test_result.emit(False, detail, endpoint, latency_ms)
-
-    def _finish_local_test(self, ok: bool, message: str, endpoint: str, latency_ms: int):
-        self._local_test_running = False
-        self._local_test_btn.setEnabled(True)
-        if endpoint != self._local_endpoint.text().strip().rstrip("/"):
-            self._local_info.setText("LOCAL OLLAMA  NOT TESTED · endpoint changed during test")
-            self._local_info.setStyleSheet(
-                f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
-            )
-            self._local_latency_status.setText("LOCAL MODEL RESPONSE  —")
-            return
-        if ok:
-            self._local_info.setText(f"LOCAL OLLAMA  ONLINE · {message}")
-            self._local_info.setStyleSheet(
-                f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
-            )
-            self._local_latency_status.setText(f"LOCAL MODEL RESPONSE  {latency_ms} ms")
-            self._local_latency_status.setToolTip(f"Local model '{message}' generated a response.")
-            self._local_info.setToolTip(f"Local model '{message}' generated a response.")
-        else:
-            self._local_info.setText("LOCAL OLLAMA  UNAVAILABLE · SEE DETAILS")
+            self._local_provider = "unknown"
+            self._local_url = ""
+            self._local_model = ""
+            self._local_info.setText(f"LOCAL AGENT CONNECTION  CONFIG ERROR · {type(exc).__name__}")
             self._local_info.setStyleSheet(
                 f"color: {C.RED}; background: transparent; border: none; font-weight: 700;"
             )
-            self._local_latency_status.setText(f"LOCAL MODEL RESPONSE  FAILED · {message[:90]}")
+
+        provider_label = {
+            "ollama": "Ollama",
+            "openai": "OpenAI-compatible local server",
+        }.get(self._local_provider, self._local_provider or "Unknown")
+        self._local_provider_info.setText(f"LOCAL AGENT PROVIDER  {provider_label}")
+        self._local_model_info.setText(f"LOCAL AGENT MODEL  {self._local_model or 'not configured'}")
+        self._local_url_info.setText(f"LOCAL AGENT ENDPOINT  {self._local_url or 'not configured'}")
+        return self._local_provider, self._local_url, self._local_model
+
+    def _probe_local_connection(self, provider: str, url: str, model: str):
+        """Check the configured backend, not a separately hard-coded Ollama URL."""
+        try:
+            import requests
+
+            if not url or not model:
+                raise RuntimeError("llm_url or llm_model is missing from config/api_keys.json.")
+
+            if provider == "ollama":
+                response = requests.get(f"{url}/api/tags", timeout=4)
+            elif provider == "openai":
+                response = requests.get(f"{url}/v1/models", timeout=4)
+            else:
+                raise RuntimeError(f"Unsupported configured provider: {provider}")
+
+            response.raise_for_status()
+            data = response.json()
+            if provider == "ollama":
+                available = [
+                    str(item.get("name") or "").strip()
+                    for item in data.get("models", [])
+                    if isinstance(item, dict)
+                ]
+                model_base = model.split(":")[0]
+                found = any(
+                    name == model or name == model_base or name.startswith(model_base + ":")
+                    for name in available
+                )
+                if found:
+                    detail = "Server online · configured model is installed."
+                    ok = True
+                else:
+                    detail = "Server online, but configured model was not found in its model list."
+                    ok = False
+            else:
+                model_items = data.get("data", []) if isinstance(data, dict) else []
+                available = [
+                    str(item.get("id") or "").strip()
+                    for item in model_items if isinstance(item, dict)
+                ]
+                found = (not available) or any(
+                    name == model or name.rsplit("/", 1)[-1] == model
+                    for name in available
+                )
+                if found:
+                    detail = "OpenAI-compatible endpoint online · configured model appears available."
+                    ok = True
+                else:
+                    detail = "Server online, but configured model was not found in /v1/models."
+                    ok = False
+
+            self._local_connection_result.emit(ok, provider, url, model, detail)
+        except Exception as exc:
+            try:
+                import requests as _requests
+                if isinstance(exc, _requests.exceptions.Timeout):
+                    detail = "Connection check timed out."
+                elif isinstance(exc, _requests.exceptions.ConnectionError):
+                    detail = "Cannot reach the configured local LLM endpoint."
+                else:
+                    detail = f"{type(exc).__name__}: {str(exc)[:150]}"
+            except Exception:
+                detail = f"{type(exc).__name__}: {str(exc)[:150]}"
+            self._local_connection_result.emit(False, provider, url, model, detail)
+
+    def _finish_local_connection(
+        self, ok: bool, provider: str, url: str, model: str, detail: str
+    ):
+        current_provider, current_url, current_model = self._refresh_local_llm_config()
+        if (provider, url, model) != (current_provider, current_url, current_model):
+            self._local_info.setText("LOCAL AGENT CONNECTION  CONFIG CHANGED · REOPEN SETTINGS")
+            self._local_info.setStyleSheet(
+                f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
+            )
+            return
+        if ok:
+            self._local_info.setText(f"LOCAL AGENT CONNECTION  SERVER ONLINE · {detail}")
+            self._local_info.setStyleSheet(
+                f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
+            )
+        else:
+            self._local_info.setText(f"LOCAL AGENT CONNECTION  NOT READY · {detail}")
+            self._local_info.setStyleSheet(
+                f"color: {C.RED}; background: transparent; border: none; font-weight: 700;"
+            )
+        self._local_info.setToolTip(detail)
+
+    def _test_local_llm(self):
+        if self._local_test_running:
+            return
+        provider, url, model = self._refresh_local_llm_config()
+        if not url or not model:
+            self._local_info.setText("LOCAL AGENT CONNECTION  CONFIG ERROR · URL/model missing")
+            self._local_info.setStyleSheet(
+                f"color: {C.RED}; background: transparent; border: none; font-weight: 700;"
+            )
+            return
+        self._local_test_running = True
+        self._local_test_btn.setEnabled(False)
+        self._local_latency_status.setText("LOCAL MODEL INFERENCE  TESTING…")
+        self._local_info.setText("LOCAL AGENT CONNECTION  RUNNING REAL INFERENCE…")
+        self._local_info.setStyleSheet(
+            f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
+        )
+        threading.Thread(
+            target=self._probe_local_llm, args=(provider, url, model), daemon=True
+        ).start()
+
+    def _probe_local_llm(self, provider: str, url: str, model: str):
+        started = time.perf_counter()
+        try:
+            from core.llm_client import call_llm, get_llm_provider, get_llm_settings
+
+            if (provider, url, model) != (get_llm_provider(), *get_llm_settings()):
+                raise RuntimeError("Local LLM config changed during the test; reopen Settings.")
+            result = call_llm(
+                [{"role": "user", "content": "Reply with only the word OK."}],
+                timeout=45,
+            )
+            answer = str(result.get("content") or "").strip()
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            if not answer:
+                raise RuntimeError("Configured local model returned no text response.")
+            self._local_test_result.emit(True, model, url, elapsed_ms)
+        except Exception as exc:
+            self._local_test_result.emit(
+                False, f"{type(exc).__name__}: {str(exc)[:150]}", url, -1
+            )
+
+    def _finish_local_test(self, ok: bool, message: str, url: str, latency_ms: int):
+        self._local_test_running = False
+        self._local_test_btn.setEnabled(True)
+        current_provider, current_url, current_model = self._refresh_local_llm_config()
+        if url != current_url:
+            self._local_info.setText("LOCAL AGENT CONNECTION  CONFIG CHANGED · REOPEN SETTINGS")
+            self._local_info.setStyleSheet(
+                f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
+            )
+            self._local_latency_status.setText("LOCAL MODEL INFERENCE  NOT VERIFIED")
+            return
+        if ok:
+            provider_label = "Ollama" if current_provider == "ollama" else "OpenAI-compatible"
+            self._local_info.setText(
+                f"LOCAL AGENT CONNECTION  ONLINE · {provider_label} inference succeeded"
+            )
+            self._local_info.setStyleSheet(
+                f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
+            )
+            self._local_latency_status.setText(f"LOCAL MODEL INFERENCE  {latency_ms} ms · {current_model}")
+            self._local_latency_status.setToolTip(f"Successful inference through the configured provider at {url}.")
+        else:
+            self._local_info.setText(f"LOCAL AGENT CONNECTION  INFERENCE FAILED · {message}")
+            self._local_info.setStyleSheet(
+                f"color: {C.RED}; background: transparent; border: none; font-weight: 700;"
+            )
+            self._local_latency_status.setText("LOCAL MODEL INFERENCE  FAILED")
             self._local_latency_status.setToolTip(message)
-            self._local_info.setToolTip(message)
 
     def _toggle_reveal(self):
         reveal = self._key_input.echoMode() == QLineEdit.EchoMode.Password
@@ -1453,7 +1506,6 @@ class ApiKeyOverlay(QWidget):
         try:
             data = _read_full_config()
             data["gemini_api_key"] = key
-            data["ollama_base_url"] = self._local_endpoint.text().strip().rstrip("/") or "http://127.0.0.1:11434"
             tmp_path = API_FILE.with_suffix(".json.tmp")
             tmp_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
             tmp_path.replace(API_FILE)
