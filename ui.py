@@ -61,27 +61,27 @@ _RIGHT_W = 340
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 class C:
-    BG        = "#050608"
-    PANEL     = "#0A0D12"
-    PANEL2    = "#10141B"
-    BORDER    = "#1B222D"
-    BORDER_B  = "#2A3441"
-    BORDER_A  = "#384554"
-    PRI       = "#00E5FF"   # Bright Neon Cyan
-    PRI_DIM   = "#0099B3"
-    PRI_GHO   = "#002028"
-    ACC       = "#FF3D71"   # Neon Pink/Red for contrast
-    ACC2      = "#FFC400"   # Warm Yellow for highlights
-    GREEN     = "#00FF88"
-    GREEN_D   = "#00B366"
-    RED       = "#FF3355"
-    MUTED_C   = "#FF3355"
-    TEXT      = "#E6EDF3"   # Crisp Off-White
-    TEXT_DIM  = "#5C6873"   # Subtle Grey
-    TEXT_MED  = "#8B96A4"   # Readable Grey
+    BG        = "#050914"
+    PANEL     = "#09111D"
+    PANEL2    = "#0E1B2B"
+    BORDER    = "#1B2E43"
+    BORDER_B  = "#29445F"
+    BORDER_A  = "#3B5F7D"
+    PRI       = "#83D8FF"   # EDITH ice-blue interface accent
+    PRI_DIM   = "#3D8FB8"
+    PRI_GHO   = "#0A263B"
+    ACC       = "#A99BFF"   # Soft violet secondary accent
+    ACC2      = "#F4CA78"   # Warm amber for system highlights
+    GREEN     = "#63E6C1"
+    GREEN_D   = "#299A83"
+    RED       = "#FF647C"
+    MUTED_C   = "#FF647C"
+    TEXT      = "#EAF4FF"
+    TEXT_DIM  = "#657D95"
+    TEXT_MED  = "#A1B6CA"
     WHITE     = "#FFFFFF"
-    DARK      = "#030508"
-    BAR_BG    = "#11151C"
+    DARK      = "#040812"
+    BAR_BG    = "#111F30"
 
 
 # Ana renge (accent) bağlı anahtarlar — durum renkleri (ACC, GREEN, RED…) sabit kalır
@@ -165,6 +165,17 @@ def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
             w.update()
         except Exception:
             pass
+
+
+UI_BRAND = "EDITH"
+
+
+def _display_assistant_name(name: str) -> str:
+    """Return the presentation-layer assistant name without changing engine identity."""
+    value = (name or "").strip()
+    if not value or value.upper() in {"JARVIS", "J.A.R.V.I.S"}:
+        return UI_BRAND
+    return value.upper()
 
 
 def qcol(h: str, a: int = 255) -> QColor:
@@ -333,7 +344,7 @@ class _SysMetrics:
 _metrics = _SysMetrics()
 
 class HudCanvas(QWidget):
-    def __init__(self, face_path: str, assistant_name: str = "J.A.R.V.I.S", parent=None):
+    def __init__(self, face_path: str, assistant_name: str = "EDITH", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(300, 300)
@@ -814,7 +825,7 @@ class FileDropZone(QWidget):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select a file for JARVIS", str(Path.home()),
+            self, "Select a file for EDITH", str(Path.home()),
             "All Files (*.*);;"
             "Images (*.jpg *.jpeg *.png *.gif *.webp *.bmp *.svg);;"
             "Documents (*.pdf *.docx *.txt *.md *.pptx);;"
@@ -1221,7 +1232,7 @@ class CustomizeOverlay(QWidget):
     saved = pyqtSignal(str, str, str)   # assistant_name, user_name, ui_color
     _OW, _OH = 400, 480
 
-    def __init__(self, assistant_name="JARVIS", user_name="",
+    def __init__(self, assistant_name="EDITH", user_name="",
                  ui_color=DEFAULT_UI_COLOR, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -1381,7 +1392,7 @@ class CustomizeOverlay(QWidget):
         self.hide()
 
     def _save(self):
-        name = self._name_input.text().strip() or "JARVIS"
+        name = self._name_input.text().strip() or "EDITH"
         user = self._user_input.text().strip()
         self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR)
         self.hide()
@@ -1829,14 +1840,17 @@ class MainWindow(QMainWindow):
         # Load customization from config
         _cfg = _read_full_config()
         self._assistant_name: str = (_cfg.get("assistant_name") or "JARVIS").strip()
-        _display = self._assistant_name.upper()
+        _display = _display_assistant_name(self._assistant_name)
+        self._display_name = _display
 
-        # Kayıtlı UI rengini panel/stylesheet'ler kurulmadan ÖNCE uygula
+        # Keep the new default theme when an older installation saved the old cyan default.
         _ui_color = (_cfg.get("ui_color") or "").strip()
+        if _ui_color.lower() == "#00e5ff":
+            _ui_color = DEFAULT_UI_COLOR
         if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
             apply_ui_accent(_ui_color)
 
-        self.setWindowTitle(f"{_display} — MARK LI")
+        self.setWindowTitle(f"{_display} — EDITH INTERFACE")
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -2514,7 +2528,7 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {color}; background: transparent;")
             return l
 
-        lay.addWidget(_badge("MARK LI", C.PRI_DIM))
+        lay.addWidget(_badge("EDITH SYSTEMS", C.PRI_DIM))
         lay.addSpacing(12)
         self._drawer_btn = QPushButton("⚙")
         self._drawer_btn.setFixedSize(28, 28)
@@ -2535,15 +2549,15 @@ class MainWindow(QMainWindow):
         lay.addStretch()
 
         mid = QVBoxLayout(); mid.setSpacing(0)
-        _disp = self._assistant_name.upper()
+        _disp = self._display_name
         self._title_lbl = QLabel(_disp)
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title_lbl.setFont(QFont(FONT_MAIN, 16, QFont.Weight.Bold))
         self._title_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         mid.addWidget(self._title_lbl)
-        _sub_text = ("Just A Rather Very Intelligent System"
-                     if _disp in ("JARVIS", "J.A.R.V.I.S")
-                     else "Personal AI Assistant")
+        _sub_text = ("EVEN DEAD, I'M THE HERO"
+                     if _disp == UI_BRAND
+                     else "PERSONAL AI ASSISTANT")
         self._sub_lbl = QLabel(_sub_text)
         self._sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._sub_lbl.setFont(QFont(FONT_MAIN, 8))
@@ -2978,7 +2992,7 @@ class MainWindow(QMainWindow):
         cat  = _file_category(p)
         icon, _ = _FILE_ICONS.get(cat, _FILE_ICONS["unknown"])
         size = _fmt_size(p.stat().st_size)
-        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell {self._assistant_name} what to do with it")
+        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell {self._display_name} what to do with it")
         self._log.append_log(f"FILE: {p.name} ({size}) loaded")
         if self.on_text_command:
             msg = (
@@ -3163,7 +3177,7 @@ class MainWindow(QMainWindow):
             self._customize_overlay.hide()
         cw = self.centralWidget()
         ov = CustomizeOverlay(
-            cfg.get("assistant_name", "JARVIS") or "JARVIS",
+            self._display_name,
             cfg.get("user_name", ""),
             cfg.get("ui_color", "") or DEFAULT_UI_COLOR,
             parent=cw,
@@ -3188,14 +3202,15 @@ class MainWindow(QMainWindow):
 
     def _apply_name_update(self, name: str, user_name: str, ui_color: str = ""):
         """Update all name/theme-dependent UI elements and persist to config."""
-        self._assistant_name = name.strip() or "JARVIS"
-        display = self._assistant_name.upper()
-        self.setWindowTitle(f"{display} — MARK LI")
+        self._assistant_name = name.strip() or "EDITH"
+        self._display_name = _display_assistant_name(self._assistant_name)
+        display = self._display_name
+        self.setWindowTitle(f"{display} — EDITH INTERFACE")
         self._title_lbl.setText(display)
-        if display in ("JARVIS", "J.A.R.V.I.S"):
-            self._sub_lbl.setText("Just A Rather Very Intelligent System")
+        if display == UI_BRAND:
+            self._sub_lbl.setText("EVEN DEAD, I'M THE HERO")
         else:
-            self._sub_lbl.setText("Personal AI Assistant")
+            self._sub_lbl.setText("PERSONAL AI ASSISTANT")
         self._log._ai_name_lc = self._assistant_name.lower()
         self.hud._assistant_name = display
 
@@ -3342,7 +3357,8 @@ class MainWindow(QMainWindow):
             self._overlay = None
         self._apply_state("LISTENING")
         self._assistant_name = _read_full_config().get("assistant_name", "JARVIS") or "JARVIS"
-        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
+        self._display_name = _display_assistant_name(self._assistant_name)
+        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._display_name} online.")
 
 class _RootShim:
     def __init__(self, app: QApplication):
