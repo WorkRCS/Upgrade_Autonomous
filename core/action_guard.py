@@ -99,7 +99,7 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
             action = "shutdown"
         elif re.search(r"\b(restart|reboot)\b", description):
             action = "restart"
-        elif re.search(r"\b(terminate|kill|close|quit|exit)\b.{0,35}\b(app|application|window|program|process)\b", description):
+        elif re.search(r"\b(close|terminate|kill|quit|exit)\b", description):
             action = "close_app"
 
     if name == "file_controller" and action in {"delete", "delete_permanent", "permanent_delete"}:
