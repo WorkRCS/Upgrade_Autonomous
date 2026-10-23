@@ -28,10 +28,12 @@ from PyQt6.QtGui import (
     QPen, QPixmap, QRadialGradient, QShortcut,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QFileDialog, QMessageBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
+
+from core.icons import svg_icon
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -696,12 +698,18 @@ class LogWidget(QTextEdit):
             QTimer.singleShot(20, self._next)
 
 _FILE_ICONS = {
-    "image":   ("🖼", "#00d4ff"), "video":   ("🎬", "#ff6b00"),
-    "audio":   ("🎵", "#cc44ff"), "pdf":     ("📄", "#ff4444"),
-    "word":    ("📝", "#4488ff"), "excel":   ("📊", "#44bb44"),
-    "code":    ("💻", "#ffcc00"), "archive": ("📦", "#ff8844"),
-    "pptx":    ("📊", "#ff6622"), "text":    ("📃", "#aaaaaa"),
-    "data":    ("🔧", "#88ddff"), "unknown": ("📎", "#888888"),
+    "image":   ("file-image",        "#A5B4FC"),
+    "video":   ("file-video",        "#A5B4FC"),
+    "audio":   ("file-audio",        "#D7B8F7"),
+    "pdf":     ("file-pdf",          "#F48F9D"),
+    "word":    ("file-word",         "#A5B4FC"),
+    "excel":   ("file-spreadsheet",  "#76D7B0"),
+    "code":    ("file-code",         "#E8C995"),
+    "archive": ("file-archive",      "#D7B8F7"),
+    "pptx":    ("file-presentation", "#A5B4FC"),
+    "text":    ("file-text",         "#B1B9C8"),
+    "data":    ("file-data",         "#A5B4FC"),
+    "unknown": ("file-generic",      "#7F899B"),
 }
 _EXT_TO_CAT = {
     **dict.fromkeys(["jpg","jpeg","png","gif","webp","bmp","tiff","svg","ico"], "image"),
@@ -857,9 +865,15 @@ class _DropCanvas(QWidget):
 
     def _paint_drag_over(self, p, W, H):
         cx, cy = W / 2, H / 2
-        p.setFont(QFont(FONT_MAIN, 18))
-        p.setPen(QPen(qcol(C.PRI), 1))
-        p.drawText(QRectF(0, cy - 24, W, 32), Qt.AlignmentFlag.AlignCenter, "⬇")
+        icon_obj = svg_icon("upload", C.PRI)
+        icon_pix = icon_obj.pixmap(QSize(24, 24)) if icon_obj else QPixmap()
+        if not icon_pix.isNull():
+            p.drawPixmap(int((W - 24) / 2), int(cy - 24), icon_pix)
+        else:
+            p.setPen(QPen(qcol(C.PRI), 1))
+            p.drawLine(QPointF(W / 2, cy - 12), QPointF(W / 2, cy + 4))
+            p.drawLine(QPointF(W / 2 - 7, cy - 3), QPointF(W / 2, cy - 12))
+            p.drawLine(QPointF(W / 2 + 7, cy - 3), QPointF(W / 2, cy - 12))
         p.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
         p.setPen(QPen(qcol(C.PRI), 1))
         p.drawText(QRectF(0, cy + 10, W, 16), Qt.AlignmentFlag.AlignCenter, "Release to load")
@@ -872,9 +886,19 @@ class _DropCanvas(QWidget):
         ext_str  = path.suffix.upper().lstrip(".") or "FILE"
 
         block_x, block_w = 10, 50
-        p.setFont(QFont("Segoe UI Emoji", 18) if _OS == "Windows" else QFont(FONT_MAIN, 18))
-        p.setPen(QPen(qcol(icon_col), 1))
-        p.drawText(QRectF(block_x, 0, block_w, H), Qt.AlignmentFlag.AlignCenter, icon)
+        # Local SVG file-type mark with a colored rail for consistent, professional UI.
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(qcol(icon_col, 220)))
+        p.drawRoundedRect(QRectF(block_x, H * 0.25, 3, H * 0.5), 1.5, 1.5)
+        icon_obj = svg_icon(icon, icon_col)
+        icon_pix = icon_obj.pixmap(QSize(28, 28)) if icon_obj else QPixmap()
+        if not icon_pix.isNull():
+            p.drawPixmap(int(block_x + 11), int((H - 28) / 2), icon_pix)
+        else:
+            p.setFont(QFont(FONT_MAIN, 7, QFont.Weight.Bold))
+            p.setPen(QPen(qcol(icon_col), 1))
+            p.drawText(QRectF(block_x + 4, 0, block_w - 8, H),
+                       Qt.AlignmentFlag.AlignCenter, cat[:4].upper())
 
         tx = block_x + block_w + 6
         tw = W - tx - 32
@@ -891,9 +915,14 @@ class _DropCanvas(QWidget):
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    f"{ext_str}  ·  {size_str}")
 
-        p.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
-        p.setPen(QPen(qcol(C.RED, 180), 1))
-        p.drawText(QRectF(W - 30, 0, 24, H), Qt.AlignmentFlag.AlignCenter, "✕")
+        close_icon = svg_icon("x", C.RED)
+        close_pix = close_icon.pixmap(QSize(14, 14)) if close_icon else QPixmap()
+        if not close_pix.isNull():
+            p.drawPixmap(W - 24, int((H - 14) / 2), close_pix)
+        else:
+            p.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
+            p.setPen(QPen(qcol(C.RED, 180), 1))
+            p.drawText(QRectF(W - 30, 0, 24, H), Qt.AlignmentFlag.AlignCenter, "X")
 
     def mousePressEvent(self, e):
         z = self._z
@@ -930,7 +959,9 @@ class _CameraPreview(QWidget):
         title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         hdr.addWidget(title)
         hdr.addStretch()
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(svg_icon("x", C.TEXT_DIM))
+        close_btn.setIconSize(QSize(12, 12))
         close_btn.setFixedSize(18, 18)
         close_btn.setFont(QFont(FONT_MAIN, 8))
         close_btn.setStyleSheet(
@@ -1444,7 +1475,7 @@ class CustomizeOverlay(QWidget):
                f"border: 1px solid {C.BORDER}; border-radius: 4px; padding: 6px 10px; }}"
                f"QLineEdit:focus {{ border: 1px solid {C.PRI}; }}")
 
-        lay.addWidget(_lbl("⚙  PREFERENCES", 13, True))
+        lay.addWidget(_lbl("PREFERENCES", 13, True))
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
         lay.addWidget(sep)
@@ -1598,7 +1629,7 @@ class PluginManagerOverlay(QWidget):
         lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(8)
 
-        hdr = QLabel("🧩  PLUGIN MANAGER")
+        hdr = QLabel("PLUGIN MANAGER")
         hdr.setFont(QFont(FONT_MAIN, 12, QFont.Weight.Bold))
         hdr.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         lay.addWidget(hdr)
@@ -2013,6 +2044,7 @@ class MainWindow(QMainWindow):
     _cam_stream_sig = pyqtSignal(bool)       # True=start live stream, False=stop
     _cam_frame_sig  = pyqtSignal(bytes)      # live camera frame → HUD area
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
+    _confirm_action_sig = pyqtSignal(str, str, object)  # title, details, state
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -2089,12 +2121,14 @@ class MainWindow(QMainWindow):
         _cam_v.setSpacing(0)
         _cam_hdr = QHBoxLayout()
         _cam_hdr.setContentsMargins(12, 8, 12, 8)
-        _cam_title = QLabel("◈  CAMERA FEED")
+        _cam_title = QLabel("CAMERA FEED")
         _cam_title.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
         _cam_title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         _cam_hdr.addWidget(_cam_title)
         _cam_hdr.addStretch()
-        _cam_x = QPushButton("✕  CLOSE")
+        _cam_x = QPushButton("CLOSE")
+        _cam_x.setIcon(svg_icon("x", C.TEXT_DIM))
+        _cam_x.setIconSize(QSize(13, 13))
         _cam_x.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
         _cam_x.setCursor(Qt.CursorShape.PointingHandCursor)
         _cam_x.setStyleSheet(f"""
@@ -2168,6 +2202,7 @@ class MainWindow(QMainWindow):
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
         self._clipboard_sig.connect(self._show_clipboard_panel)
+        self._confirm_action_sig.connect(self._show_action_confirmation)
         self._cam_stop = threading.Event()
 
         # Camera preview overlay (child of central widget, positioned in resizeEvent)
@@ -2668,9 +2703,10 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_badge("EDITH SYSTEMS", C.PRI_DIM))
         lay.addSpacing(12)
-        self._drawer_btn = QPushButton("⚙")
+        self._drawer_btn = QPushButton()
+        self._drawer_btn.setIcon(svg_icon("settings", C.PRI))
+        self._drawer_btn.setIconSize(QSize(17, 17))
         self._drawer_btn.setFixedSize(28, 28)
-        self._drawer_btn.setFont(QFont(FONT_MAIN, 12))
         self._drawer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._drawer_btn.setToolTip("Settings & Controls")
         self._drawer_btn.setStyleSheet(f"""
@@ -2829,7 +2865,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(_sec("COMMAND INPUT"))
         lay.addLayout(self._build_input_row())
 
-        self._interrupt_btn = QPushButton("✋  INTERRUPT  [ESC]")
+        self._interrupt_btn = QPushButton("INTERRUPT  [ESC]")
+        self._interrupt_btn.setIcon(svg_icon("stop-circle", C.MUTED_C))
+        self._interrupt_btn.setIconSize(QSize(16, 16))
         self._interrupt_btn.setFixedHeight(34)
         self._interrupt_btn.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
         self._interrupt_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2848,7 +2886,7 @@ class MainWindow(QMainWindow):
         self._interrupt_btn.clicked.connect(self._do_interrupt)
         lay.addWidget(self._interrupt_btn)
 
-        self._mute_btn = QPushButton("🎙  MICROPHONE ACTIVE")
+        self._mute_btn = QPushButton("MICROPHONE ACTIVE")
         self._mute_btn.setFixedHeight(32)
         self._mute_btn.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
         self._mute_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2859,7 +2897,7 @@ class MainWindow(QMainWindow):
         return w
 
     def _build_quick_drawer(self) -> QWidget:
-        """Floating overlay panel shown when the ⚙ header button is toggled."""
+        """Floating overlay panel shown when the settings header button is toggled."""
         _BTN_STYLE_PRI = f"""
             QPushButton {{
                 background: {C.PANEL2}; color: {C.PRI};
@@ -2930,7 +2968,9 @@ class MainWindow(QMainWindow):
         self._autostart_btn.clicked.connect(self._toggle_autostart)
         lay.addWidget(self._autostart_btn)
 
-        cust_btn = QPushButton("⚙  PREFERENCES & THEME")
+        cust_btn = QPushButton("PREFERENCES & THEME")
+        cust_btn.setIcon(svg_icon("settings", C.PRI))
+        cust_btn.setIconSize(QSize(15, 15))
         cust_btn.setFixedHeight(28)
         cust_btn.setFont(QFont(FONT_MAIN, 8))
         cust_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2973,7 +3013,9 @@ class MainWindow(QMainWindow):
         self._brief_btn.clicked.connect(self._toggle_brief)
         lay.addWidget(self._brief_btn)
 
-        plugin_btn = QPushButton("🧩  PLUGINS")
+        plugin_btn = QPushButton("PLUGINS")
+        plugin_btn.setIcon(svg_icon("puzzle", C.PRI))
+        plugin_btn.setIconSize(QSize(15, 15))
         plugin_btn.setFixedHeight(28)
         plugin_btn.setFont(QFont(FONT_MAIN, 8))
         plugin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3124,7 +3166,9 @@ class MainWindow(QMainWindow):
         self._content_ts_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
         hdr.addWidget(self._content_ts_lbl)
 
-        dismiss = QPushButton("DISMISS  ✕")
+        dismiss = QPushButton("DISMISS")
+        dismiss.setIcon(svg_icon("x", C.TEXT_DIM))
+        dismiss.setIconSize(QSize(12, 12))
         dismiss.setFont(QFont(FONT_MAIN, 8))
         dismiss.setFixedHeight(22)
         dismiss.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3174,6 +3218,37 @@ class MainWindow(QMainWindow):
 
         return w
 
+    def _show_action_confirmation(self, title: str, details: str, state: dict):
+        """Render a native, default-cancel confirmation dialog on the Qt UI thread."""
+        try:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle((title or "Confirm sensitive action")[:100])
+            box.setText("Confirmation required before this action can run.")
+            box.setInformativeText(
+                (details or "Review the requested operation.")[:1800]
+                + "\n\nNothing will be changed unless you choose Confirm and Execute."
+            )
+            box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            yes_btn = box.button(QMessageBox.StandardButton.Yes)
+            no_btn = box.button(QMessageBox.StandardButton.No)
+            if yes_btn:
+                yes_btn.setText("Confirm and Execute")
+            if no_btn:
+                no_btn.setText("Cancel")
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            box.setEscapeButton(QMessageBox.StandardButton.No)
+            state["confirmed"] = int(box.exec()) == int(QMessageBox.StandardButton.Yes)
+        except Exception as exc:
+            print(f"[Confirmation] Dialog unavailable: {type(exc).__name__}")
+            state["confirmed"] = False
+        finally:
+            event = state.get("event")
+            if event is not None:
+                event.set()
+
     def _show_content(self, title: str, text: str):
         """Slot — runs on Qt main thread. Updates and shows the content panel."""
         import time as _time
@@ -3208,9 +3283,8 @@ class MainWindow(QMainWindow):
         self._current_file = path
         p    = Path(path)
         cat  = _file_category(p)
-        icon, _ = _FILE_ICONS.get(cat, _FILE_ICONS["unknown"])
         size = _fmt_size(p.stat().st_size)
-        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell {self._display_name} what to do with it")
+        self._file_hint.setText(f"{p.name}  ·  {size}  ·  Tell {self._display_name} what to do with it")
         self._log.append_log(f"FILE: {p.name} ({size}) loaded")
         if self.on_text_command:
             msg = (
@@ -3510,7 +3584,9 @@ class MainWindow(QMainWindow):
 
     def _style_mute_btn(self):
         if self._muted:
-            self._mute_btn.setText("🔇  MICROPHONE MUTED")
+            self._mute_btn.setText("MICROPHONE MUTED")
+            self._mute_btn.setIcon(svg_icon("mic-off", C.MUTED_C))
+            self._mute_btn.setIconSize(QSize(16, 16))
             self._mute_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #140006; color: {C.MUTED_C};
@@ -3518,7 +3594,9 @@ class MainWindow(QMainWindow):
                 }}
             """)
         else:
-            self._mute_btn.setText("🎙  MICROPHONE ACTIVE")
+            self._mute_btn.setText("MICROPHONE ACTIVE")
+            self._mute_btn.setIcon(svg_icon("mic", C.GREEN))
+            self._mute_btn.setIconSize(QSize(16, 16))
             self._mute_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #00140A; color: {C.GREEN};
@@ -3653,6 +3731,17 @@ class JarvisUI:
     def show_content(self, title: str, text: str):
         """Thread-safe: display content in the panel below the HUD."""
         self._win._content_sig.emit(title[:48], text[:4000])
+
+    def confirm_sensitive_action(self, title: str, details: str, timeout: float = 180.0) -> bool:
+        """Ask the user through the Qt GUI; timeout/cancellation never authorizes the action."""
+        state = {"event": threading.Event(), "confirmed": False}
+        self._win._confirm_action_sig.emit(
+            str(title or "")[:100], str(details or "")[:1800], state
+        )
+        if not state["event"].wait(max(1.0, float(timeout))):
+            self.write_log("ACTIVITY CANCELLED: confirmation timed out; no action was executed.")
+            return False
+        return bool(state.get("confirmed", False))
 
     def prompt_reconfig(self):
         """Thread-safe: show the API key setup overlay (e.g. after an auth error)."""
