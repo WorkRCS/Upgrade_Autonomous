@@ -283,7 +283,7 @@ def _search_key(value: object) -> str:
 def filter_app_names(app_names, query: str = "", limit: int = 30) -> list[str]:
     """Deduplicate, filter, and cap discovered app labels in a deterministic way."""
     try:
-        cap = max(1, min(int(limit), 100))
+        cap = max(1, min(int(limit), 3000))
     except (TypeError, ValueError):
         cap = 30
     unique = {}
@@ -455,13 +455,13 @@ def discover_installed_apps() -> list[str]:
                 candidates.append(alias.title())
         except (ValueError, OSError):
             continue
-    return filter_app_names(candidates, limit=100)
+    return filter_app_names(candidates, limit=3000)
 
 
 def list_installed_apps(query: str = "", limit: int = 30) -> str:
     """Format a discovered-app inventory or filtered search."""
     apps = discover_installed_apps()
-    matching = filter_app_names(apps, query=query, limit=100)
+    matching = filter_app_names(apps, query=query, limit=3000)
     try:
         display_limit = max(1, min(int(limit), 100))
     except (TypeError, ValueError):
