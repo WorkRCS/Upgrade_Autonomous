@@ -63,6 +63,12 @@ class ConfirmationRequirementTests(unittest.TestCase):
         )
         self.assertIn(body, reason)
 
+    def test_destructive_command_preview_contains_exact_target_command(self):
+        command = "docker rm -f test-container"
+        reason = confirmation_requirement("computer_control", {"action": "type", "text": command})
+        self.assertIn(command, reason)
+        self.assertIn("target application", reason)
+
     def test_destructive_shell_commands_are_confirmed(self):
         commands = (
             "rm -rf /tmp/build",
