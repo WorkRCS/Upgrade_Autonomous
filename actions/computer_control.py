@@ -4,6 +4,7 @@ import json
 import platform
 import re
 import string
+import shutil
 import subprocess
 import sys
 
