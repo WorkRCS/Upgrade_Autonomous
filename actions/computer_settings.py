@@ -645,7 +645,7 @@ def computer_settings(
     if not action:
         return "No action could be determined."
 
-    print(f"[Settings] Action: {action}  Value: {value}  OS: {_OS}")
+    print(f"[Settings] Action: {action}  OS: {_OS}; supplied value omitted from logs")
     if player:
         player.write_log(f"[Settings] {action}")
 
