@@ -1130,7 +1130,7 @@ class ApiKeyOverlay(QWidget):
                     speech_config=types.SpeechConfig(
                         voice_config=types.VoiceConfig(
                             prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name="Achernar"
+                                voice_name="Kore"
                             )
                         )
                     ),
@@ -1152,16 +1152,22 @@ class ApiKeyOverlay(QWidget):
     def _finish_test(self, ok: bool, message: str, key: str):
         self._test_running = False
         self._test_btn.setEnabled(True)
-        self._status.setText(message)
-        self._status.setStyleSheet(
-            f"color: {C.GREEN if ok else C.RED}; background: transparent;"
-        )
-        if ok and key == self._key_input.text().strip():
+        key_still_matches = key == self._key_input.text().strip()
+        if ok and key_still_matches:
+            self._status.setText(message)
+            self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
             self._tested_key = key
             self._save_btn.setEnabled(True)
+            return
+
+        self._tested_key = ""
+        self._save_btn.setEnabled(False)
+        if not key_still_matches:
+            self._status.setText("The input changed during testing. Test the current key again.")
+            self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
         else:
-            self._tested_key = ""
-            self._save_btn.setEnabled(False)
+            self._status.setText(message)
+            self._status.setStyleSheet(f"color: {C.RED}; background: transparent;")
 
     def _save_key(self):
         key = self._key_input.text().strip()
