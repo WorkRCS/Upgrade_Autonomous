@@ -58,6 +58,12 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("session.receive()", self.ui)
         self.assertIn("time.perf_counter()", self.ui)
         self.assertIn("pyqtSignal(bool, str, str, int)", self.ui)
+        self.assertIn("TEST LOCAL", self.ui)
+        self.assertIn("http://127.0.0.1:11434", self.ui)
+        self.assertIn("/api/tags", self.ui)
+        self.assertIn("/api/generate", self.ui)
+        self.assertIn("is_loopback", self.ui)
+        self.assertIn("this does not change EDITH's active provider", self.ui)
 
     def test_prompt_includes_low_latency_behavior_without_skipping_safety(self):
         self.assertIn("LOW-LATENCY BEHAVIOR", self.prompt)
