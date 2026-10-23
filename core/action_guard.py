@@ -153,9 +153,13 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
         command_text = str(p.get("text") or p.get("value") or "")
         for label, pattern in _DESTRUCTIVE_TERMINAL_PATTERNS:
             if pattern.search(command_text):
+                review_text = str(command_text).strip()
+                if len(review_text) > 6000:
+                    review_text = review_text[:6000] + "\n[Preview truncated; a truncated preview must not authorize execution.]"
                 return (
-                    f"The text to enter matches a high-impact operation ({label}). "
-                    "Confirm before entering it into the active application, and verify the target first."
+                    f"Run this high-impact operation ({label}) in the target application?\n\n"
+                    f"Exact command/text to review:\n{review_text}\n\n"
+                    "Confirm only if the target and every operation shown above are intended."
                 )
 
     if name == "code_helper" and action in {"run", "execute"}:
