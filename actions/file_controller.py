@@ -134,7 +134,7 @@ def list_files(path: str = "desktop", show_hidden: bool = False) -> str:
                 items.append(f"[DIR]  {item.name}/")
             else:
                 size = _format_size(item.stat().st_size)
-                items.append(f"[FILE] {item.name} ({size})
+                items.append(f"[FILE] {item.name} ({size})")
 
         if not items:
             return f"Directory is empty: {target.name}/"
