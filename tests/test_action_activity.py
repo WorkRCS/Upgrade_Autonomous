@@ -111,6 +111,18 @@ class ActionActivityTests(unittest.TestCase):
             self.assertIn("Permanently deleted", result)
             self.assertFalse(target.exists())
 
+    def test_permanent_delete_can_remove_an_explicit_user_folder_after_confirmation(self):
+        from pathlib import Path
+        from actions.file_controller import delete_file_permanently
+
+        with tempfile.TemporaryDirectory(dir=str(Path.home())) as tmp:
+            child = Path(tmp) / "child.txt"
+            child.write_text("remove me", encoding="utf-8")
+            result = delete_file_permanently(tmp)
+            self.assertIn("Permanently deleted", result)
+            self.assertFalse(Path(tmp).exists())
+            self.assertFalse(child.exists())
+
     def test_permanent_delete_refuses_standard_home_roots(self):
         from actions.file_controller import delete_file_permanently
 
