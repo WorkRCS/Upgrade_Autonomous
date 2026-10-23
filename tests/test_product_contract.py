@@ -64,14 +64,13 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("TEST LOCAL LLM", self.ui)
         self.assertIn("from core.llm_client import get_llm_provider, get_llm_settings", self.ui)
         self.assertIn("from core.llm_client import call_llm, get_llm_provider, get_llm_settings", self.ui)
-        self.assertIn('"_DEFAULTS"', self.llm_client) if False else None
         self.assertIn('"llm_provider"', self.llm_client)
         self.assertIn('"llm_url"', self.llm_client)
         self.assertIn('"llm_model"', self.llm_client)
         self.assertIn("def get_llm_provider()", self.llm_client)
         self.assertIn("def get_llm_settings()", self.llm_client)
         self.assertIn("def call_llm(", self.llm_client)
-        self.assertIn("self._local_endpoint", self.ui) == False
+        self.assertNotIn("self._local_endpoint", self.ui)
 
     def test_prompt_includes_low_latency_behavior_without_skipping_safety(self):
         self.assertIn("LOW-LATENCY BEHAVIOR", self.prompt)
