@@ -1144,7 +1144,7 @@ class JarvisLive:
             self.ui.write_log(f"ACTIVITY NOTE: {activity_label}")
         else:
             self.ui.write_log(f"ACTIVITY ✓ {activity_label}")
-        print(f"[Assistant] 📤 {name} → {str(result)[:80]}")
+        print(f"[Assistant] Tool completed: {name}; outcome={outcome}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
