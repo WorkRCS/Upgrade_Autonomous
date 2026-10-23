@@ -62,6 +62,17 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
     p = parameters or {}
     name = _text(tool_name, 50).lower()
     action = _text(p.get("action") or "", 50).lower().replace("-", "_").replace(" ", "_")
+    description = _text(p.get("description") or "", 240).lower()
+
+    # Some single-action OS requests arrive as natural-language descriptions
+    # and are translated to an action inside the handler; guard them beforehand.
+    if name == "computer_settings" and not action:
+        if re.search(r"\b(shut\s*down|power\s*off|turn\s*off\s+(?:the\s+)?computer)\b", description):
+            action = "shutdown"
+        elif re.search(r"\b(restart|reboot)\b", description):
+            action = "restart"
+        elif re.search(r"\b(terminate|kill|close|quit|exit)\b.{0,35}\b(app|application|window|program|process)\b", description):
+            action = "close_app"
 
     if name == "file_controller" and action in {"delete", "delete_permanent", "permanent_delete"}:
         target = _target_path(p)
@@ -104,14 +115,17 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
                     "Confirm only after the current screen shows the intended target."
                 )
 
-        if action in {"type", "smart_type", "paste"}:
-            command_text = str(p.get("text") or "")
-            for label, pattern in _DESTRUCTIVE_TERMINAL_PATTERNS:
-                if pattern.search(command_text):
-                    return (
-                        f"The text to enter matches a high-impact operation ({label}). "
-                        "Confirm before entering it into the active application, and verify the target first."
-                    )
+    if (
+        name in {"browser_control", "computer_control", "computer_settings"}
+        and action in {"type", "smart_type", "paste", "type_text", "write_on_screen", "write"}
+    ):
+        command_text = str(p.get("text") or p.get("value") or "")
+        for label, pattern in _DESTRUCTIVE_TERMINAL_PATTERNS:
+            if pattern.search(command_text):
+                return (
+                    f"The text to enter matches a high-impact operation ({label}). "
+                    "Confirm before entering it into the active application, and verify the target first."
+                )
 
     if name == "code_helper" and action in {"run", "execute"}:
         return "Run the requested code in the local environment? Review the target project and possible side effects before approving."
