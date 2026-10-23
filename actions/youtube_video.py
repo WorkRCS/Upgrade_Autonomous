@@ -304,6 +304,27 @@ def _handle_play(parameters: dict, player) -> str:
     return f"Opened YouTube search for: {query} (manual selection required)"
 
 
+def _handle_channel_search(parameters: dict, player, speak=None) -> str:
+    """Open YouTube's channel-filtered search results; never play a video for a channel request."""
+    query = str(parameters.get("query") or "").strip()
+    if not query:
+        return "Please tell me the channel name you'd like to search for."
+
+    if player:
+        player.write_log(f"[YouTube] Channel search: {query[:80]}")
+
+    channel_url = (
+        "https://www.youtube.com/results"
+        f"?search_query={quote_plus(query)}"
+        "&sp=EgIQAg%3D%3D"
+    )
+    _open_url(channel_url)
+    return (
+        f"Opened YouTube channel-only search results for: {query}. "
+        "No video was auto-played; choose the intended channel from the visible results."
+    )
+
+
 def _handle_summarize(parameters: dict, player, speak) -> str:
     if not _TRANSCRIPT_OK:
         return "youtube-transcript-api is not installed. Run: pip install youtube-transcript-api"
@@ -401,6 +422,7 @@ def _handle_trending(parameters: dict, player, speak) -> str:
 
 _ACTION_MAP = {
     "play":      _handle_play,
+    "channel":   _handle_channel_search,
     "summarize": _handle_summarize,
     "get_info":  _handle_get_info,
     "trending":  _handle_trending,
@@ -425,7 +447,7 @@ def youtube_video(
     if handler is None:
         return (
             f"Unknown YouTube action: '{action}'. "
-            "Available: play, summarize, get_info, trending."
+            "Available: play, channel, summarize, get_info, trending."
         )
 
     try:
