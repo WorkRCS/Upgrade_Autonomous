@@ -34,15 +34,16 @@ class ConfirmationRequirementTests(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertIsNotNone(confirmation_requirement("computer_settings", {"action": action}))
 
-    def test_message_confirmation_does_not_expose_message_body(self):
-        secret = "private sentence and password p@ssword"
+    def test_message_confirmation_shows_exact_body_locally_for_review(self):
+        secret = "Please review the attached file"
         reason = confirmation_requirement(
             "send_message",
             {"platform": "WhatsApp", "receiver": "Alex", "message_text": secret},
         )
         self.assertIn("WhatsApp", reason)
         self.assertIn("Alex", reason)
-        self.assertNotIn(secret, reason)
+        self.assertIn(secret, reason)
+        self.assertIn("local confirmation dialog", reason)
 
     def test_destructive_shell_commands_are_confirmed(self):
         commands = (
