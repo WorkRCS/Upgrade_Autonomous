@@ -111,7 +111,7 @@ class ProductContractTests(unittest.TestCase):
     def test_filesystem_tasks_route_to_file_controller_not_code_helper(self):
         self.assertIn("create_folders", self.main)
         self.assertIn('"names":       {"type": "ARRAY"', self.main)
-        self.assertIn("ordinary file and folder management", self.main)
+        self.assertIn("always use file_controller rather than code_helper", self.main)
         self.assertIn("Never call code_helper or dev_agent just to create/manage ordinary folders or files", self.prompt)
         self.assertIn('action=create_folders', self.prompt)
 
