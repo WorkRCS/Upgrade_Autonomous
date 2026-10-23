@@ -91,6 +91,9 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("Do not interpret a generic request as permission to close", self.main)
         self.assertIn('"edith" in foreground_key', self.main)
 
+    def test_full_end_to_end_testing_checklist_is_linked(self):
+        self.assertIn("TESTING.md", self.readme)
+
     def test_neural_intelligence_product_identity_and_confirmation_policy(self):
         self.assertIn("Neural Intelligence Model", self.prompt)
         self.assertIn("Do not reveal backend provider names", self.prompt)
