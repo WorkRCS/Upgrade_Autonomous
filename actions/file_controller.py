@@ -207,11 +207,9 @@ def delete_file_permanently(path: str, name: str = "") -> str:
         if not target.exists() and not target.is_symlink():
             return f"Not found: {target.name}"
 
-        # Never allow deleting the home root or known top-level user folders.
-        protected = {
-            _get_desktop(), _get_downloads(), _get_documents(),
-            _get_pictures(), _get_music(), _get_videos(), Path.home()
-        }
+        # Keep the profile root protected; user-selected folders such as Desktop
+        # or Downloads may be removed only after the dispatcher obtains confirmation.
+        protected = {Path.home()}
         if target.resolve() in {p.resolve() for p in protected}:
             return f"Protected directory, cannot permanently delete: {target.name}"
 
@@ -539,10 +537,6 @@ def file_controller(
             return delete_file(path, name=name)
 
         elif action in {"delete_permanent", "permanent_delete"}:
-            shortcut_roots = {"desktop", "downloads", "documents", "pictures", "music", "videos", "home"}
-            raw_path = str(path or "").strip().strip("\\").strip("/")
-            if not name and raw_path.casefold() in shortcut_roots:
-                return "Permanent deletion requires a specific file/folder path or a name under a parent folder."
             return delete_file_permanently(path, name=name)
 
         elif action == "move":
