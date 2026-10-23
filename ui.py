@@ -170,12 +170,9 @@ def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
 UI_BRAND = "AI ASSISTANT"
 
 
-def _display_assistant_name(name: str) -> str:
-    """Map legacy fictional names to the neutral app label."""
-    value = (name or "").strip()
-    if not value or value.upper() in {"JARVIS", "J.A.R.V.I.S", "EDITH", "AI ASSISTANT"}:
-        return UI_BRAND
-    return value.upper()
+def _display_assistant_name(_name: str = "") -> str:
+    """The product intentionally has no configurable assistant or character brand."""
+    return UI_BRAND
 
 
 def qcol(h: str, a: int = 255) -> QColor:
@@ -369,7 +366,8 @@ class HudCanvas(QWidget):
         self._blink_tick = 0
         self._particles: list[list[float]] = []
         self._face_px: QPixmap | None = None
-        self._load_face(face_path)
+        # The center visual is always the app's neutral orb; do not load character/brand art.
+        self._face_px = None
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
@@ -1223,19 +1221,12 @@ class CustomizeOverlay(QWidget):
                f"border: 1px solid {C.BORDER}; border-radius: 4px; padding: 6px 10px; }}"
                f"QLineEdit:focus {{ border: 1px solid {C.PRI}; }}")
 
-        lay.addWidget(_lbl("⚙  CUSTOMISE ASSISTANT", 13, True))
+        lay.addWidget(_lbl("⚙  PREFERENCES", 13, True))
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
         lay.addWidget(sep)
 
-        lay.addWidget(_lbl("ASSISTANT NAME", 8, color=C.TEXT_DIM,
-                            align=Qt.AlignmentFlag.AlignLeft))
-        self._name_input = QLineEdit(assistant_name)
-        self._name_input.setFont(QFont(FONT_MAIN, 10))
-        self._name_input.setFixedHeight(34)
-        self._name_input.setStyleSheet(_fs)
-        lay.addWidget(self._name_input)
-
+        # Assistant display identity is intentionally fixed and unbranded.
         lay.addSpacing(4)
         lay.addWidget(_lbl("YOUR NAME (Optional)", 8,
                             color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft))
@@ -1357,7 +1348,7 @@ class CustomizeOverlay(QWidget):
         self.hide()
 
     def _save(self):
-        name = self._name_input.text().strip() or "AI ASSISTANT"
+        name = "AI ASSISTANT"
         user = self._user_input.text().strip()
         self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR)
         self.hide()
@@ -1804,7 +1795,7 @@ class MainWindow(QMainWindow):
 
         # Load customization from config
         _cfg = _read_full_config()
-        self._assistant_name: str = (_cfg.get("assistant_name") or "JARVIS").strip()
+        self._assistant_name: str = "AI ASSISTANT"
         _display = _display_assistant_name(self._assistant_name)
         self._display_name = _display
 
@@ -3112,8 +3103,8 @@ class MainWindow(QMainWindow):
 
     def _apply_name_update(self, name: str, user_name: str, ui_color: str = ""):
         """Update all name/theme-dependent UI elements and persist to config."""
-        self._assistant_name = name.strip() or "AI ASSISTANT"
-        self._display_name = _display_assistant_name(self._assistant_name)
+        self._assistant_name = "AI ASSISTANT"
+        self._display_name = UI_BRAND
         display = self._display_name
         self.setWindowTitle("AI ASSISTANT • DESKTOP")
         self._title_lbl.setText(UI_BRAND)
@@ -3263,8 +3254,8 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._assistant_name = _read_full_config().get("assistant_name", "JARVIS") or "JARVIS"
-        self._display_name = _display_assistant_name(self._assistant_name)
+        self._assistant_name = "AI ASSISTANT"
+        self._display_name = UI_BRAND
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._display_name} online.")
 
 class _RootShim:
