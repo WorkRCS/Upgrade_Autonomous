@@ -752,8 +752,8 @@ class JarvisLive:
         # Load customization from config
         try:
             _cfg = json.loads(open(API_CONFIG_PATH, encoding="utf-8").read())
-            # Ignore any old/custom display name: product identity stays neutral.
-            self._asst_name = "AI Assistant"
+            # The fixed product display name is EDITH; ignore any legacy/custom assistant name.
+            self._asst_name = "EDITH"
             _user_name = (_cfg.get("user_name") or "").strip()
             voice_mode = str(_cfg.get("voice_mode") or self._voice_mode).strip().lower()
             self._voice_mode = voice_mode if voice_mode in VOICE_PRESETS else "female"
