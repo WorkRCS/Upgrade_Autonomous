@@ -1047,7 +1047,7 @@ class ApiKeyOverlay(QWidget):
         self._provider_info = QLabel("PROVIDER  Google Gemini Live API · cloud-hosted")
         self._model_info = QLabel("MODEL  models/gemini-2.5-flash-native-audio-preview-12-2025")
         self._local_info = QLabel("LOCAL LLM  Not configured · this build currently uses cloud Gemini")
-        self._connection_status = QLabel("CONNECTION  NOT TESTED")
+        self._connection_status = QLabel("LAST TEST  NOT TESTED")
         self._latency_status = QLabel("TIME TO FIRST MODEL RESPONSE  —")
         for info in (self._provider_info, self._model_info, self._local_info,
                      self._connection_status, self._latency_status):
@@ -1154,7 +1154,7 @@ class ApiKeyOverlay(QWidget):
         if not self._test_running:
             self._status.setText("Key changed. Test it before saving.")
             self._status.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
-            self._connection_status.setText("CONNECTION  NOT TESTED")
+            self._connection_status.setText("LAST TEST  NOT TESTED")
             self._connection_status.setStyleSheet(
                 f"color: {C.TEXT_DIM}; background: transparent; border: none; font-weight: 700;"
             )
@@ -1172,7 +1172,7 @@ class ApiKeyOverlay(QWidget):
         self._save_btn.setEnabled(False)
         self._status.setText("Opening a Live session and waiting for an actual model response…")
         self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
-        self._connection_status.setText("CONNECTION  TESTING…")
+        self._connection_status.setText("LAST TEST  RUNNING…")
         self._connection_status.setStyleSheet(
             f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
         )
@@ -1250,7 +1250,7 @@ class ApiKeyOverlay(QWidget):
         if ok and key_still_matches:
             self._status.setText(message)
             self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
-            self._connection_status.setText("CONNECTION  ONLINE · MODEL RESPONSE RECEIVED")
+            self._connection_status.setText("LAST TEST  PASSED · MODEL RESPONSE RECEIVED")
             self._connection_status.setStyleSheet(
                 f"color: {C.GREEN}; background: transparent; border: none; font-weight: 700;"
             )
@@ -1264,7 +1264,7 @@ class ApiKeyOverlay(QWidget):
         if not key_still_matches:
             self._status.setText("The input changed during testing. Test the current key again.")
             self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
-            self._connection_status.setText("CONNECTION  NOT TESTED")
+            self._connection_status.setText("LAST TEST  NOT TESTED")
             self._connection_status.setStyleSheet(
                 f"color: {C.TEXT_DIM}; background: transparent; border: none; font-weight: 700;"
             )
@@ -1272,7 +1272,7 @@ class ApiKeyOverlay(QWidget):
         else:
             self._status.setText(message)
             self._status.setStyleSheet(f"color: {C.RED}; background: transparent;")
-            self._connection_status.setText("CONNECTION  FAILED · SEE DETAILS BELOW")
+            self._connection_status.setText("LAST TEST  FAILED · SEE DETAILS BELOW")
             self._connection_status.setStyleSheet(
                 f"color: {C.RED}; background: transparent; border: none; font-weight: 700;"
             )
