@@ -690,7 +690,7 @@ def computer_settings(
             return "No text provided to type."
         enter_after = str(params.get("press_enter", "false")).lower() in ("true", "1", "yes")
         type_text(text, press_enter_after=enter_after)
-        return f"Typed: {text[:80]}"
+        return "Typed the requested text; content omitted from logs and tool result."
 
     if action == "press_key":
         key = str(value or params.get("key", "")).strip()
