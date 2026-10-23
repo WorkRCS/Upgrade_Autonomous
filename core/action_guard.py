@@ -98,8 +98,6 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
         platform = _text(p.get("platform") or "messaging app", 35)
         receiver = _text(p.get("receiver") or "unspecified recipient", 65)
         body = str(p.get("message_text") or p.get("text") or "").strip()
-        if len(body) > 1200:
-            body = body[:1199].rstrip() + "…"
         return (
             f"Send a message using {platform} to '{receiver}'?\n\n"
             f"Message to review:\n{body or '[No message body provided]'}\n\n"
