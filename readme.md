@@ -52,6 +52,10 @@ This foundation does not guarantee that every workflow in every third-party appl
 
 Actual response time depends on network conditions, API availability, the requested action, and the local system. Long-running actions such as web searches, downloads, or application startup cannot be guaranteed to finish within a fixed number of seconds.
 
+## Full end-to-end testing
+
+Use [TESTING.md](TESTING.md) for the complete local validation sequence, including automated checks, Gemini/voice/UI smoke tests, app discovery, YouTube channel search, Activity Log privacy, and safe confirmation-dialog tests using disposable files and harmless apps. Machine-level GUI behavior still needs to be verified on the target OS.
+
 ## Requirements
 
 - Windows 10/11, macOS, or Linux
