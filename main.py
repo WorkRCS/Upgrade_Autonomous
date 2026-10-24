@@ -802,7 +802,9 @@ class EdithLive:
             response={**response.response, "execution_verification": evidence.response_metadata()},
         )
         if evidence.blocks_dependents:
-            raise TaskReportedFailure(annotated)
+            raise TaskReportedFailure(
+                annotated, status="cancelled" if evidence.status == "cancelled" else "failed"
+            )
         return annotated
 
     async def _execute_tool_batch(self, calls) -> list[types.FunctionResponse]:
