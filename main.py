@@ -80,6 +80,7 @@ from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
+from core.task_view           import compact_task_view
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -725,11 +726,12 @@ class EdithLive:
         return url, key, f"{url}/auto-login?key={key}", manual
 
     def _notify_task_status(self, states: list[dict]) -> None:
-        """Update the existing EDITH UI without exposing tool arguments."""
-        active = sum(item["status"] == "running" for item in states)
-        queued = sum(item["status"] == "queued" for item in states)
-        complete = sum(item["status"] == "succeeded" for item in states)
-        self.ui._win.task_status_signal.emit(active, queued, complete)
+        """Publish bounded task metadata to the existing Qt UI; never tool args."""
+        view = compact_task_view(states)
+        self.ui._win.task_status_signal.emit(
+            view["running"], view["queued"], view["completed"]
+        )
+        self.ui._win.task_detail_signal.emit(view)
 
     def _cancel_pending_tasks(self) -> None:
         """Qt callback: only pending work is cancelled, never running OS actions."""
