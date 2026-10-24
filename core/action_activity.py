@@ -159,6 +159,8 @@ def activity_outcome(result: object) -> str:
         "failed", "error:", "could not", "unknown tool", "unknown action",
         "not available", "not installed", "timed out", "permission denied",
         "element not found", "not found on screen", "unsupported operating system",
+        "access denied", "path not found", "file not found", "source not found",
+        "not a directory", "cancelled by user", "nothing was executed",
     )
     if any(token in text for token in failures):
         return "error"
