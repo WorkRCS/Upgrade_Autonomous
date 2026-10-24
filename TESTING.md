@@ -449,3 +449,70 @@ Phase 5 only when GitHub CI is green **and** you confirm the real Windows
 and phone checks. Do not start Phase 6 before this approval. A private VPN
 can make a trusted remote path reachable from elsewhere, but arbitrary
 internet access is not guaranteed or implicitly enabled.
+
+## Phase 6 — Agent execution reliability release gate
+
+**Do not mark Phase 6 complete based only on CI.** Complete the on-device
+checks below, then approve Phase 6 explicitly. Stay on `ui/edith-interface`;
+do not merge into main or create a new branch. Preserve both Gemini Live and
+the existing local Ollama/OpenAI-compatible agent settings.
+
+### Automated checks
+
+Run from the repository root in the activated Python environment:
+
+```powershell
+python -m compileall -q main.py ui.py setup.py actions core dashboard memory plugins tests config tools
+python -m unittest discover -s tests -v
+python tests/check_inline_js.py
+node tests/check_phase5_js.js
+```
+
+Verify `tests/test_phase6_reliability.py` passes. It tests same-ID duplicate
+suppression, conflicting IDs, privacy-safe SQLite history, restart recovery,
+bounded storage, truthful side-effect receipts, and cancellation dependencies.
+These are mocked/local tests; they cannot confirm actual Windows GUI results.
+
+### Windows and live-provider verification
+
+1. Update only `ui/edith-interface`, install dependencies into the selected
+   Python environment, and run `python -m core.startup_check`.
+2. Run `python main.py`. Confirm the **original** EDITH UI, name, icon,
+   microphone, text input, settings and desktop shortcut all work as before.
+3. Test **TEST KEY** (Gemini Live) and **TEST LOCAL LLM** separately. The
+   previously selected `llm_provider`, `llm_url`, `llm_model` and
+   `gemini_api_key` must still work without being overwritten.
+4. Use a harmless, disposable directory. Ask EDITH to create one folder and
+   verify it exists independently in Explorer. A successful tool receipt alone
+   does not prove the folder exists. Ask for task status/history: EDITH should
+   show task names and states without displaying original paths or file data.
+5. Ask EDITH to prepare a harmless outbound message to a test recipient. Choose
+   **Cancel** in the local confirmation dialog. Confirm that the message was
+   **not sent** and cancellation is not presented as successful delivery.
+   Do not approve a real external send merely to check this.
+6. With a disposable read-only lookup running, close/restart EDITH to test
+   interrupted history. The previous queued/running task should be reported
+   as **interrupted**, never automatically resumed. Do not terminate EDITH
+   during a file write, message send, deletion or other side effect.
+7. Inspect `memory/agent_history.sqlite3` using a local SQLite viewer or
+   Python. The only saved columns must be task ID, tool name, status,
+   verification, duration and timestamps. No API key, path, message body or
+   raw tool output should appear. This private local file is not committed.
+8. Repeat a harmless read-only lookup and verify the app still responds,
+   cancellation of queued work still works, and a fresh user command is not
+   mistaken for an automatic replay.
+9. Test Local LLM planning/coding workflows and the Gemini Live voice session
+   again. Phase 6 cannot be marked complete if either provider regresses.
+
+### What is verified and what is not
+
+Duplicate detection applies to repeated **model function call IDs during the
+same EDITH process**. It does not deduplicate unrelated new user commands
+or guarantee exactly-once delivery across OS crashes/external services.
+A tool-reported success is not independent proof of an external side effect;
+the follow-up observation must still be performed where possible.
+
+**Gate:** report PASS/FAIL for startup, both model paths, harmless file action,
+cancelled message, history privacy, crash recovery and normal UI behavior.
+Do not claim Phase 6 is 100% complete until the user approves the on-device
+results. Do not store or send any private API keys or message contents in logs.
