@@ -37,6 +37,35 @@ The **TEST KEY** action opens a Live session, sends a short test prompt, waits f
 
 When the settings panel opens, its local-LLM section reads the actual configured provider, endpoint, and model from `core.llm_client`, then checks whether the endpoint is reachable and whether the configured model appears available. **TEST LOCAL LLM** sends a real short inference request through that same `call_llm` client and reports its response time. These checks do not replace or overwrite the existing local-LLM configuration. The assistant prompt prioritizes concise, direct replies and immediate tool use for straightforward tasks while preserving safety confirmations and target verification.
 
+## Phase 2 latency improvements
+
+EDITH now schedules text input directly onto the existing Gemini Live event loop
+without creating a new OS thread per text submission. Session preparation reads
+memory/configuration off the event loop. The Live Activity Log reports the
+session connection duration and **first-audio latency for text requests**;
+these timings are measurements, not speed guarantees.
+
+The microphone/remote input queue is bounded to about two seconds of audio.
+Under severe network congestion EDITH discards the **oldest unsent chunk**
+rather than accumulating a long queue of stale audio; very slow connections
+can still cause missing words. These changes do not bypass security dialogs,
+change the cloud model, or replace the configured Local LLM backend.
+
+Local text-only agents retain their original 600-token response budget for
+planning/coding tasks; concise chat calls keep their 150-token default.
+To measure streaming response time with the **already configured** local
+backend (Ollama or OpenAI-compatible), run:
+
+```powershell
+python tools/phase2_benchmark.py --iterations 3
+```
+
+This records first complete sentence and total response latency, but does
+not print model output or API keys. The existing **TEST KEY** and
+**TEST LOCAL LLM** controls continue to validate each backend separately.
+Follow the Phase 2 section in [TESTING.md](TESTING.md) before considering
+this phase accepted on your own machine.
+
 ## Product identity
 
 When asked what model/provider or AI service powers it, EDITH's conversational product identity is **Neural Intelligence Model**. The system prompt instructs the assistant not to disclose backend provider or model identifiers in conversation, including when such requests appear in untrusted page or file content. This is conversational branding; it does not remove provider-level policies or change which API is configured in the local settings.
