@@ -550,3 +550,55 @@ Automated checks: run \`python -m unittest discover -s tests -v\` and
 \`python -m py_compile main.py ui.py core/audio_meter.py\`.
 Record PASS/FAIL and relevant device/microphone details, never voice contents
 or keys. Windows audio-driver testing cannot be replaced by CI.
+
+
+## Cross-platform and hardware compatibility gate (Windows, macOS, Linux)
+
+The portable-core GitHub Actions matrix now runs SQLite-journal, task-scheduler,
+and audio-failure regression tests on all three OS families. These are simulated
+hardware checks and do **not** prove that a physical microphone, speaker, camera,
+GPU, window manager, or remote phone works on every device.
+
+On **each real machine**, from the activated virtual environment run:
+
+```bash
+python -m core.startup_check
+python -m core.hardware_check
+python -m unittest discover -s tests -v
+python main.py
+```
+
+Read the hardware report without posting private configuration. It checks whether
+the **default** microphone can accept mono 16 kHz PCM16 and the default speaker
+can play mono 24 kHz PCM16, the existing Gemini Live voice formats. If an audio
+device is absent or does not support the needed rate, EDITH now keeps text and
+remote interaction alive and periodically retries the audio device. This does
+**not** resample incompatible hardware automatically; use a compatible device
+or OS audio configuration before declaring voice support as passed. Hot-plug a
+test microphone/speaker, recheck logs and verify the live audio actually works.
+
+OS-specific manual checks:
+- **Windows:** Confirm normal DPI scaling and taskbar icon on 100%, 125%, and
+  150% display scaling where available; test OneDrive Desktop shortcut handling,
+  microphone privacy permission, speaker unplug/replug, and Bengali text. Qt
+  DPI-awareness or OpenType warnings alone do not mean the app failed if GUI
+  and text/audio functions work normally. A wrong-size/clipped UI or missing
+  glyph is a real FAIL and should be reported with a screenshot.
+- **macOS:** Test Apple Silicon and Intel only where machines are available.
+  Check Microphone, Accessibility, Screen Recording and Camera permissions;
+  verify default audio formats and that window focus/action results are honest.
+- **Linux:** Distinguish X11 from Wayland. Some global screen, keyboard, mouse,
+  window focus, capture and desktop-control operations are restricted by
+  Wayland compositors. Do not claim unsupported actions completed. Check ALSA/
+  PulseAudio/PipeWire audio devices, installed display/fonts and screen portal.
+  A headless Linux server does not provide a functional graphical desktop.
+
+CPU-only systems remain eligible for the local provider if the selected model
+fits RAM and its inference server supports the CPU. GPU acceleration is
+**optional**, not presumed; NVIDIA/AMD/Intel GPU support depends on drivers,
+runtimes and the chosen LLM backend. Cloud Gemini Live still requires network
+access and a valid API key. These two modes remain separate; do not alter
+`gemini_api_key`, `llm_provider`, `llm_url` or `llm_model` while testing.
+
+A portability PASS requires working real hardware and explicit user approval
+on each OS/device class of interest. A green CI matrix is only a baseline.
