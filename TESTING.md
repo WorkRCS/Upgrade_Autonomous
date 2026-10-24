@@ -2,6 +2,51 @@
 
 This checklist separates automated repository checks from manual tests that must be run on the computer where EDITH will be used. Passing CI does **not** prove every OS-specific GUI action works on every machine.
 
+## Phase 1 release gate — complete before Phase 2
+
+Phase 1 is **not complete** until the repository checks pass **and** the user
+verifies the following on their actual Windows installation. Do not start Phase 2
+until the user explicitly confirms this release gate passed.
+
+1. Update **only** `ui/edith-interface` using `git fetch origin`,
+   `git checkout ui/edith-interface`, and `git pull --ff-only origin ui/edith-interface`.
+   Do not create any new branch or merge the PR during testing.
+2. Activate the existing Python virtual environment (or create one) and run
+   `python -m pip install -r requirements.txt` followed by
+   `python -m core.startup_check`. Verify the previously reported
+   `sounddevice` startup problem no longer occurs.
+3. Run the full automated commands in section 2. Start with `python main.py`;
+   verify the **existing** EDITH design opens with the dedicated EDITH window
+   and taskbar icon. No UI layout redesign is part of Phase 1.
+4. In EDITH, click **CREATE DESKTOP SHORTCUT**. Check the desktop contains
+   `EDITH.lnk`, it uses the EDITH icon, and launching it opens EDITH. Old
+   shortcuts are removed automatically **only** if their target is positively
+   identified as this installation's `main.py`; verify any remaining old
+   shortcuts manually before removing them. Do not delete unknown shortcuts.
+5. Toggle Auto-start on and off once. Use the Windows Task Manager Startup
+   Apps page or inspect
+   `HKCU:\Software\Microsoft\Windows\CurrentVersion\Run`. A new
+   entry must be named `EDITH`, not the former product name. Existing
+   auto-start data is migrated only if it matches this installation.
+6. Open Remote Control, then check that `Downloads/EDITH Uploads` is used
+   for phone uploads. If the former uploads directory existed, its files
+   must survive migration. A same-name file collision must **not** overwrite
+   either file. If permissions or existing symlinks prevent migration, inspect
+   both folders and retain the old one until data has been checked.
+7. Check file screenshots, new reminders, generated projects, browser profiles,
+   notifications and optional scheduled game updates create **EDITH**-named
+   artifacts. Existing scheduled reminders must continue to work; their old
+   scheduling records may remain until they fire or are removed safely.
+8. Test the current cloud **Gemini Live** key and **Local LLM** inference
+   separately in settings. Confirm the saved `llm_provider`, `llm_url`,
+   `llm_model`, and `gemini_api_key` were not unexpectedly modified.
+9. Restart EDITH, repeat shortcut launch and API/Local LLM checks, then
+   report **PASS/FAIL** for each item. A Windows-level failure keeps Phase 1
+   open even when GitHub Actions passes.
+
+Do **not** post config secrets, browser cookies, microphone samples or private
+files with a bug report. Sanitized stack traces and shortcut targets are enough.
+
 ## 0. Before you start
 
 - Use a computer you control, with Python 3.11 or 3.12.
@@ -51,14 +96,14 @@ pip install -r requirements.txt
 Run these from the project root, in the activated environment:
 
 ```bash
-python -m py_compile main.py ui.py setup.py
+python -m compileall -q main.py ui.py setup.py actions core dashboard memory plugins tests config
 python -m unittest discover -s tests -v
 python tests/check_inline_js.py
 ```
 
 **Pass criteria:** all commands exit with code 0; the unit-test output ends with `OK`. If any command fails, stop here, save the error output with credentials and private text removed, and fix it before live testing.
 
-The GitHub Actions Quality checks workflow runs the same three checks on the branch.
+The GitHub Actions Quality checks workflow runs these same checks on the branch.
 
 ## 3. Start the app and check basics
 
@@ -69,9 +114,9 @@ The GitHub Actions Quality checks workflow runs the same three checks on the bra
 5. Click **TEST LOCAL LLM**. The test should make an actual short inference through `core.llm_client.call_llm` and show success plus response time. Check the configured model is the same one shown by the panel. If using `llm_provider=openai`, make sure the configured OpenAI-compatible server and model are running.
 6. Run **TEST KEY**. The test should open a Gemini Live session, send a short prompt, wait for the first actual model output, and show the time to first response. A successful handshake without model output must not be reported as a passed test.
 7. Save/reconnect only if the Gemini model-response test succeeds. The local status check must not overwrite existing local-LLM settings.
-4. Confirm that the main EDITH UI opens, text input works, the microphone can be enabled/muted, the interrupt control responds, and the Activity Log remains visible.
-5. Inspect the main controls and file cards: icons should render as line icons rather than emoji placeholders.
-6. Close and restart EDITH normally once to check that the local configuration remains available.
+8. Confirm that the main EDITH UI opens, text input works, the microphone can be enabled/muted, the interrupt control responds, and the Activity Log remains visible.
+9. Inspect the main controls and file cards: icons should render as line icons rather than emoji placeholders.
+10. Close and restart EDITH normally once to check that the local configuration remains available.
 
 ## 4. Voice and identity
 
