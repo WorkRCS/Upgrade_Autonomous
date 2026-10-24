@@ -820,19 +820,26 @@ class EdithLive:
                 ))
         return responses
 
-    def _on_text_command(self, text: str):
-        """Schedule a text request without blocking the Qt UI thread."""
+    def _on_text_command(self, text: str) -> bool:
+        """Queue text input; tell Qt whether it is safe to clear the draft."""
         if not self._loop or not self._loop.is_running() or not self.session:
-            self.ui.write_log("NET: Gemini Live is not connected; text was not sent.")
-            return
+            self.ui.write_log("NET: Gemini Live is not connected; command kept for retry.")
+            return False
         self._pending_text_started_at = time.perf_counter()
-        future = asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"parts": [{"text": text}]},
-                turn_complete=True,
-            ),
-            self._loop,
-        )
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.session.send_client_content(
+                    turns={"parts": [{"text": text}]},
+                    turn_complete=True,
+                ),
+                self._loop,
+            )
+        except RuntimeError as exc:
+            self._pending_text_started_at = None
+            self.ui.write_log(
+                f"ERR: Could not queue Gemini Live text ({type(exc).__name__})."
+            )
+            return False
 
         def _check_send(result):
             try:
@@ -842,8 +849,11 @@ class EdithLive:
                 self.ui.write_log(
                     f"ERR: Could not send text to Gemini Live ({type(exc).__name__})."
                 )
+                # Restore only when the user has not already typed a new draft.
+                self.ui._win.text_send_failed_signal.emit(text)
 
         future.add_done_callback(_check_send)
+        return True
 
     def set_speaking(self, value: bool):
         with self._speaking_lock:
