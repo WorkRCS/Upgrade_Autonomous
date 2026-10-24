@@ -683,6 +683,8 @@ class EdithLive:
         self._agent_run_id = secrets.token_hex(6)
         self._action_deduplicator = ActionDeduplicator()
         self._agent_journal = AgentTaskJournal()
+        if not self._agent_journal.available:
+            self.ui.write_log("TASKS: Task history storage unavailable; no private actions are logged to disk.")
         self._task_evidence: dict[str, tuple[ActionEvidence, int]] = {}
         self.ui._win.on_cancel_queued_tasks = self._cancel_pending_tasks
         self._turn_done_event: asyncio.Event | None = None
@@ -847,7 +849,20 @@ class EdithLive:
             f"{parallel_count} read-only action(s) eligible for concurrency (max 4)."
         )
         self._agent_journal.plan([(spec.task_id, calls[i].name) for i, spec in enumerate(specs)])
-        outcomes = await self._task_scheduler.run_batch(specs)
+        try:
+            outcomes = await self._task_scheduler.run_batch(specs)
+        except asyncio.CancelledError:
+            # Live disconnects must not leave in-flight work marked successful.
+            # Background OS operations may continue; never replay them.
+            states = {item["id"]: item["status"]
+                      for item in self._task_scheduler.snapshot()}
+            for spec in specs:
+                interrupted = states.get(spec.task_id) in {"running", "interrupted"}
+                self._agent_journal.finished(
+                    spec.task_id, "interrupted" if interrupted else "cancelled",
+                    "not_verified",
+                )
+            raise
         responses = []
         for fc, outcome in zip(calls, outcomes):
             evidence, duration_ms = self._task_evidence.pop(
@@ -1280,11 +1295,11 @@ class EdithLive:
 
             elif name == "send_message":
                 r = await loop.run_in_executor(None, lambda: send_message(parameters=args, response=None, player=self.ui, session_memory=None))
-                result = r or f"Message sent to {args.get('receiver')}."
+                result = r or "Message tool returned no delivery receipt. Delivery is unverified; do not resend automatically."
 
             elif name == "reminder":
                 r = await loop.run_in_executor(None, lambda: reminder(parameters=args, response=None, player=self.ui))
-                result = r or "Reminder set."
+                result = r or "Reminder tool returned no receipt; completion is not independently verified."
 
             elif name == "youtube_video":
                 r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self.ui))
