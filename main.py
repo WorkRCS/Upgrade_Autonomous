@@ -78,6 +78,7 @@ from memory.config_manager     import get_brief_enabled
 from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
+from core.realtime_audio      import enqueue_latest_audio
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -642,6 +643,7 @@ class EdithLive:
         self.session              = None
         self.audio_in_queue       = None
         self.out_queue            = None
+        self._pending_text_started_at: float | None = None
         self._loop                = None
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
@@ -717,15 +719,29 @@ class EdithLive:
         return url, key, f"{url}/auto-login?key={key}", manual
 
     def _on_text_command(self, text: str):
-        if not self._loop or not self.session:
+        """Schedule a text request without blocking the Qt UI thread."""
+        if not self._loop or not self._loop.is_running() or not self.session:
+            self.ui.write_log("NET: Gemini Live is not connected; text was not sent.")
             return
-        asyncio.run_coroutine_threadsafe(
+        self._pending_text_started_at = time.perf_counter()
+        future = asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
                 turns={"parts": [{"text": text}]},
-                turn_complete=True
+                turn_complete=True,
             ),
-            self._loop
+            self._loop,
         )
+
+        def _check_send(result):
+            try:
+                result.result()
+            except Exception as exc:
+                self._pending_text_started_at = None
+                self.ui.write_log(
+                    f"ERR: Could not send text to Gemini Live ({type(exc).__name__})."
+                )
+
+        future.add_done_callback(_check_send)
 
     def set_speaking(self, value: bool):
         with self._speaking_lock:
@@ -1263,9 +1279,12 @@ class EdithLive:
                 edith_speaking = self._is_speaking
             if not edith_speaking and not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
+                # Never enqueue directly from PortAudio's callback thread.
+                # Keep only ~2 seconds of microphone backlog when the network slows.
                 loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
+                    enqueue_latest_audio,
+                    self.out_queue,
+                    {"data": data, "mime_type": "audio/pcm"},
                 )
 
         try:
@@ -1295,6 +1314,14 @@ class EdithLive:
                         if self._interrupted:
                             pass  # discard: interrupted
                         else:
+                            if self._pending_text_started_at is not None:
+                                elapsed_ms = round(
+                                    (time.perf_counter() - self._pending_text_started_at) * 1000
+                                )
+                                self._pending_text_started_at = None
+                                self.ui.write_log(
+                                    f"PERF: Gemini Live first audio after text request: {elapsed_ms} ms."
+                                )
                             if self._turn_done_event and self._turn_done_event.is_set():
                                 self._turn_done_event.clear()
                             # Split into ~50 ms chunks so interrupt() stops audio within 50 ms
@@ -1480,7 +1507,6 @@ class EdithLive:
         loop = asyncio.get_event_loop()
         news_future = loop.run_in_executor(None, _fetch_news_sync, "top world news today")
 
-        await asyncio.sleep(0.3)
         if not self.session:
             return
 
@@ -1728,10 +1754,7 @@ class EdithLive:
             with self._speaking_lock:
                 speaking = self._is_speaking
             if not speaking and not self.ui.muted:
-                try:
-                    self.out_queue.put_nowait(chunk)
-                except asyncio.QueueFull:
-                    pass
+                enqueue_latest_audio(self.out_queue, chunk)
 
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
@@ -1790,7 +1813,10 @@ class EdithLive:
                 print("[Assistant] Connecting...")
                 self._connecting = True
                 self.ui.set_state("THINKING")
-                config = self._build_config()
+                connect_started_at = time.perf_counter()
+                # Memory/config file reads must not block remote commands or
+                # other async operations on the Live session event loop.
+                config = await asyncio.to_thread(self._build_config)
 
                 # Fresh client on every reconnect — avoids stale HTTP session state
                 # v1alpha carries the enhanced audio features (affective dialog,
@@ -1807,7 +1833,9 @@ class EdithLive:
                     self.session          = session
                     self._connecting       = False
                     self.audio_in_queue   = asyncio.Queue()
-                    self.out_queue        = asyncio.Queue(maxsize=200)
+                    # 1024 samples / 16 kHz ≈ 64 ms per microphone chunk.
+                    # 32 chunks cap stale audio at ~2 s instead of ~12.8 s.
+                    self.out_queue        = asyncio.Queue(maxsize=32)
                     self._turn_done_event = asyncio.Event()
 
                     # Reset transient state that must not carry over from a previous session
@@ -1817,8 +1845,13 @@ class EdithLive:
                     self._vision_busy          = False
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
+                    self._pending_text_started_at = None
 
                     print("[Assistant] Connected.")
+                    self.ui.write_log(
+                        f"PERF: Gemini Live session ready in "
+                        f"{round((time.perf_counter() - connect_started_at) * 1000)} ms."
+                    )
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: Assistant ready.")
 
