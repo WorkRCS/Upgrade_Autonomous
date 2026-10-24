@@ -10,6 +10,7 @@ class ProductContractTests(unittest.TestCase):
         cls.ui = (ROOT / "ui.py").read_text(encoding="utf-8")
         cls.main = (ROOT / "main.py").read_text(encoding="utf-8")
         cls.llm_client = (ROOT / "core" / "llm_client.py").read_text(encoding="utf-8")
+        cls.scheduler = (ROOT / "core" / "task_scheduler.py").read_text(encoding="utf-8")
         cls.prompt = (ROOT / "core" / "prompt.txt").read_text(encoding="utf-8")
         cls.app = (ROOT / "dashboard" / "static" / "app.html").read_text(encoding="utf-8")
         cls.login = (ROOT / "dashboard" / "static" / "login.html").read_text(encoding="utf-8")
@@ -121,6 +122,27 @@ class ProductContractTests(unittest.TestCase):
     def test_generic_close_will_not_target_the_edith_window_itself(self):
         self.assertIn("Do not interpret a generic request as permission to close", self.main)
         self.assertIn('"edith" in foreground_key', self.main)
+
+    def test_phase3_scheduler_wired_to_existing_live_api_and_ui(self):
+        self.assertIn("from core.task_scheduler", self.main)
+        self.assertIn("async def _execute_tool_batch(", self.main)
+        self.assertIn("await self._execute_tool_batch(", self.main)
+        self.assertIn("parallel_read_only(fc.name", self.main)
+        self.assertIn("TaskReportedFailure", self.main)
+        self.assertIn("self._task_scheduler.run_batch(specs)", self.main)
+        self.assertIn("task_status_signal", self.ui)
+        self.assertIn("CANCEL WAITING", self.ui)
+        self.assertIn("on_cancel_queued_tasks", self.ui)
+        self.assertIn("def cancel_queued(", self.scheduler)
+        self.assertIn("max_concurrency: int = 4", self.scheduler)
+        self.assertIn("if spec.exclusive:", self.scheduler)
+        self.assertIn("Dependency did not succeed", self.scheduler)
+        self.assertIn("MULTITASKING AND TASK DEPENDENCIES", self.prompt)
+        # Both provider adapters and the original cloud model remain configured.
+        self.assertIn("def get_llm_provider()", self.llm_client)
+        self.assertIn("def call_llm_text(", self.llm_client)
+        self.assertIn("def call_llm_stream(", self.llm_client)
+        self.assertIn("models/gemini-2.5-flash-native-audio-preview-12-2025", self.main)
 
     def test_full_end_to_end_testing_checklist_is_linked(self):
         self.assertIn("TESTING.md", self.readme)
