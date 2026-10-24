@@ -1,6 +1,6 @@
-from core.branding import prepare_agent_profiles_dir, migrate_named_directory
-
 from __future__ import annotations
+
+from core.branding import prepare_agent_profiles_dir, migrate_named_directory
 
 import asyncio
 import concurrent.futures
