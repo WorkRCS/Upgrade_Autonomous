@@ -79,6 +79,7 @@ from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
+from core.task_scheduler      import TaskScheduler, TaskSpec, parallel_read_only
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -660,6 +661,11 @@ class EdithLive:
         self.ui.on_voice_mode_clicked = self._request_voice_mode_from_ui
         self.ui._win.voice_mode_signal.emit(self._voice_mode)
         self.ui.on_interrupt      = self.interrupt
+        self._task_scheduler = TaskScheduler(
+            max_concurrency=4, on_update=self._notify_task_status
+        )
+        self._task_batch_sequence = 0
+        self.ui._win.on_cancel_queued_tasks = self._cancel_pending_tasks
         self._turn_done_event: asyncio.Event | None = None
         self._dashboard     = None
         self._briefing_sent    = False          # morning briefing fires once per process
@@ -717,6 +723,90 @@ class EdithLive:
         url    = self._dashboard.get_url()
         manual = self._dashboard.get_manual_url()
         return url, key, f"{url}/auto-login?key={key}", manual
+
+    def _notify_task_status(self, states: list[dict]) -> None:
+        """Update the existing EDITH UI without exposing tool arguments."""
+        active = sum(item["status"] == "running" for item in states)
+        queued = sum(item["status"] == "queued" for item in states)
+        complete = sum(item["status"] == "succeeded" for item in states)
+        self.ui._win.task_status_signal.emit(
+            f"TASKS  {active} RUNNING  ·  {queued} QUEUED  ·  {complete} DONE"
+        )
+
+    def _cancel_pending_tasks(self) -> None:
+        """Qt callback: only pending work is cancelled, never running OS actions."""
+        loop = self._loop
+        if not loop or not loop.is_running():
+            self.ui.write_log("TASKS: Task scheduler is not connected.")
+            return
+
+        def _cancel():
+            count = self._task_scheduler.cancel_queued()
+            self.ui.write_log(
+                f"TASKS: Cancelled {count} queued task(s). "
+                "Running actions were not interrupted."
+            )
+
+        loop.call_soon_threadsafe(_cancel)
+
+    async def _execute_tool_batch(self, calls) -> list[types.FunctionResponse]:
+        """Parallelize independent read-only calls while preserving action order.
+
+        Every write/desktop/unknown tool is a barrier. Calls after that barrier
+        cannot start until it succeeds. Results are returned in model call order.
+        """
+        calls = list(calls)
+        if not calls:
+            return []
+        self._task_batch_sequence += 1
+        batch = self._task_batch_sequence
+        specs = []
+        barrier: tuple[str, ...] = ()
+        current_reads: list[str] = []
+        parallel_count = 0
+        for index, fc in enumerate(calls):
+            task_id = f"{batch}-{index + 1}"
+            safe = parallel_read_only(fc.name, dict(fc.args or {}))
+            if safe:
+                dependencies = barrier
+                current_reads.append(task_id)
+                parallel_count += 1
+            else:
+                dependencies = tuple(dict.fromkeys((*barrier, *current_reads)))
+                barrier = (task_id,)
+                current_reads.clear()
+            specs.append(TaskSpec(
+                task_id=task_id,
+                label=describe_tool_activity(fc.name, dict(fc.args or {})),
+                run=lambda call=fc: self._execute_tool(call),
+                priority=0 if fc.name == "system_status" else 10,
+                depends_on=dependencies,
+                exclusive=not safe,
+            ))
+
+        self.ui.write_log(
+            f"TASKS: {len(specs)} action(s) queued; "
+            f"{parallel_count} read-only action(s) eligible for concurrency (max 4)."
+        )
+        outcomes = await self._task_scheduler.run_batch(specs)
+        responses = []
+        for fc, outcome in zip(calls, outcomes):
+            if outcome.status == "succeeded":
+                responses.append(outcome.value)
+            else:
+                # Explicitly report a skipped/failed action to Gemini rather
+                # than inventing a successful tool response.
+                reason = {
+                    "cancelled": "Cancelled while queued; no action started.",
+                    "blocked": "Not run because a prerequisite failed or was cancelled.",
+                    "failed": "Task failed before returning a tool result.",
+                    "interrupted": "Task interrupted; completion cannot be verified.",
+                }.get(outcome.status, "Task did not complete.")
+                self.ui.write_log(f"TASKS: {fc.name} — {outcome.status}.")
+                responses.append(types.FunctionResponse(
+                    id=fc.id, name=fc.name, response={"result": reason}
+                ))
+        return responses
 
     def _on_text_command(self, text: str):
         """Schedule a text request without blocking the Qt UI thread."""
@@ -1413,11 +1503,9 @@ class EdithLive:
                                 asyncio.create_task(_cam_close())
 
                     if response.tool_call:
-                        fn_responses = []
-                        for fc in response.tool_call.function_calls:
-                            print(f"[Assistant] 📞 {fc.name}")
-                            fr = await self._execute_tool(fc)
-                            fn_responses.append(fr)
+                        fn_responses = await self._execute_tool_batch(
+                            response.tool_call.function_calls
+                        )
                         await self.session.send_tool_response(
                             function_responses=fn_responses
                         )
