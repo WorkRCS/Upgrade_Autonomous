@@ -113,7 +113,20 @@ class WorkspaceTests(unittest.TestCase):
         panel._set_color('#a0458c')
         self.window._escape_action()
         self.assertFalse(panel.isVisible())
-        self.assertEqual({k:v.lower() for k,v in original.items()}, self.ui.current_palette())
+        self.assertEqual({k:v.lower() for k,v in original.items()},
+                         {k:v.lower() for k,v in self.ui.current_palette().items()})
+
+    def test_theme_picker_previews_light_and_cancel_restores_system_choice(self):
+        original = self.ui.current_palette()
+        self.window._open_customize()
+        panel = self.window._customize_overlay
+        panel._theme_picker.setCurrentIndex(2)  # Light
+        self.app.processEvents()
+        self.assertEqual(self.ui.C.BG, self.ui._THEME_DEFAULTS["light"]["BG"])
+        panel._cancel()
+        self.assertEqual(self.window._theme_preference, "system")
+        self.assertEqual({k:v.lower() for k,v in original.items()},
+                         {k:v.lower() for k,v in self.ui.current_palette().items()})
 
     def test_thinking_working_speaking_priority_tracks_real_tasks(self):
         w = self.window

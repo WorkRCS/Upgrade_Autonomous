@@ -28,7 +28,7 @@ from PyQt6.QtGui import (
     QPen, QPixmap, QRadialGradient, QShortcut,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QFileDialog, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar, QInputDialog,
 )
@@ -38,6 +38,7 @@ from core.window_controls import initial_geometry
 from core.video_visual import LoopingVideo, draw_blended_video
 from core.dark_theme import apply_dark_theme
 from core.secrets import get_gemini_api_key, save_gemini_api_key
+from core.theme_service import SystemThemeMonitor, normalise_theme
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -93,13 +94,33 @@ class C:
     BAR_BG    = "#101A2A"
 
 
-# Ana renge (accent) bağlı anahtarlar — durum renkleri (ACC, GREEN, RED…) sabit kalır
+# Complete palettes are centralised. Widgets retain the original native layout
+# and refer to C, so a palette transition repaints in place.
+_THEME_COLOR_KEYS = (
+    "BG", "PANEL", "PANEL2", "BORDER", "BORDER_B", "BORDER_A", "PRI",
+    "PRI_DIM", "PRI_GHO", "ACC", "ACC2", "GREEN", "GREEN_D", "RED",
+    "MUTED_C", "TEXT", "TEXT_DIM", "TEXT_MED", "WHITE", "DARK", "BAR_BG",
+)
+_THEME_DEFAULTS = {
+    "dark": {key: getattr(C, key) for key in _THEME_COLOR_KEYS},
+    "light": {
+        "BG": "#EDF4F8", "PANEL": "#F8FBFD", "PANEL2": "#E2EEF4",
+        "BORDER": "#B9CDD8", "BORDER_B": "#7BA1B5", "BORDER_A": "#4A819C",
+        "PRI": "#007C9D", "PRI_DIM": "#176B86", "PRI_GHO": "#CDEDF5",
+        "ACC": "#6348AF", "ACC2": "#8A5512", "GREEN": "#147A58",
+        "GREEN_D": "#216A55", "RED": "#B62D45", "MUTED_C": "#B62D45",
+        "TEXT": "#122735", "TEXT_DIM": "#526C7B", "TEXT_MED": "#294554",
+        "WHITE": "#FFFFFF", "DARK": "#E5EFF4", "BAR_BG": "#DCE9F0",
+    },
+}
+
+# Accent affects the cyan family only; status colours retain their semantic role.
 _HUE_LINKED = (
     "BG", "PANEL", "PANEL2", "BORDER", "BORDER_B", "BORDER_A",
     "PRI", "PRI_DIM", "PRI_GHO", "TEXT", "TEXT_DIM", "TEXT_MED",
     "WHITE", "DARK", "BAR_BG",
 )
-_PALETTE_DEFAULTS: dict[str, str] = {k: getattr(C, k) for k in _HUE_LINKED}
+_PALETTE_DEFAULTS: dict[str, str] = dict(_THEME_DEFAULTS["dark"])
 
 DEFAULT_UI_COLOR = _PALETTE_DEFAULTS["PRI"]
 
@@ -142,9 +163,22 @@ def apply_ui_accent(accent_hex: str) -> bool:
     return True
 
 
+def apply_ui_theme(theme: str, accent_hex: str = "") -> str:
+    """Set the base palette, then reapply the optional persisted accent."""
+    resolved = normalise_theme(theme)
+    defaults = _THEME_DEFAULTS[resolved]
+    for key, value in defaults.items():
+        setattr(C, key, value)
+    _PALETTE_DEFAULTS.clear()
+    _PALETTE_DEFAULTS.update(defaults)
+    if accent_hex and accent_hex.strip().lower() != DEFAULT_UI_COLOR.lower():
+        apply_ui_accent(accent_hex)
+    return resolved
+
+
 def current_palette() -> dict[str, str]:
     """C sınıfındaki accent'e bağlı renklerin anlık kopyası."""
-    return {k: getattr(C, k) for k in _HUE_LINKED}
+    return {k: getattr(C, k) for k in _THEME_COLOR_KEYS}
 
 
 def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
@@ -1660,15 +1694,16 @@ class CustomizeOverlay(QWidget):
     """Floating overlay — change assistant name, user name and UI colour."""
 
     saved = pyqtSignal(str, str, str)   # assistant_name, user_name, ui_color
-    _OW, _OH = 400, 480
+    theme_saved = pyqtSignal(str)
+    _OW, _OH = 400, 530
 
     def __init__(self, assistant_name="EDITH", user_name="",
-                 ui_color=DEFAULT_UI_COLOR, parent=None):
+                 ui_color=DEFAULT_UI_COLOR, theme_preference="system", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             CustomizeOverlay {{
-                background: rgba(5, 6, 8, 250);
+                background: {C.PANEL};
                 border: 1px solid {C.BORDER_B};
                 border-radius: 8px;
             }}
@@ -1703,6 +1738,29 @@ class CustomizeOverlay(QWidget):
         self._user_input.setFixedHeight(34)
         self._user_input.setStyleSheet(_fs)
         lay.addWidget(self._user_input)
+
+        lay.addSpacing(4)
+        lay.addWidget(_lbl("APPEARANCE", 8, color=C.TEXT_DIM,
+                           align=Qt.AlignmentFlag.AlignLeft))
+        self._initial_theme = str(theme_preference or "system").lower()
+        if self._initial_theme not in {"system", "dark", "light"}:
+            self._initial_theme = "system"
+        self._sel_theme = self._initial_theme
+        self._theme_picker = QComboBox()
+        self._theme_picker.addItem("System", "system")
+        self._theme_picker.addItem("Dark", "dark")
+        self._theme_picker.addItem("Light", "light")
+        self._theme_picker.setCurrentIndex(("system", "dark", "light").index(self._sel_theme))
+        self._theme_picker.setAccessibleName("EDITH appearance theme")
+        self._theme_picker.setStyleSheet(f"""
+            QComboBox {{ background: {C.DARK}; color: {C.TEXT}; border: 1px solid {C.BORDER};
+                         border-radius: 4px; padding: 5px 10px; }}
+            QComboBox:hover, QComboBox:focus {{ border-color: {C.PRI}; }}
+            QComboBox QAbstractItemView {{ background: {C.PANEL}; color: {C.TEXT};
+                                           selection-background-color: {C.PRI_GHO}; }}
+        """)
+        self._theme_picker.currentIndexChanged.connect(self._on_theme_changed)
+        lay.addWidget(self._theme_picker)
 
         # ── UI colour — renk çarkı ───────────────────────────────────────────
         lay.addSpacing(4)
@@ -1810,6 +1868,8 @@ class CustomizeOverlay(QWidget):
 
     def _cancel(self):
         # Önizleme uygulandıysa açılıştaki renge geri dön
+        if getattr(self, "on_theme_preview", None) and self._sel_theme != self._initial_theme:
+            self.on_theme_preview(self._initial_theme)
         if self.on_preview and self._sel_color != self._initial_color:
             self.on_preview(self._initial_color)
         self.hide()
@@ -1818,7 +1878,14 @@ class CustomizeOverlay(QWidget):
         name = "EDITH"
         user = self._user_input.text().strip()
         self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR)
+        self.theme_saved.emit(self._sel_theme)
         self.hide()
+
+    def _on_theme_changed(self, index: int):
+        value = self._theme_picker.itemData(index)
+        self._sel_theme = str(value or "system")
+        if getattr(self, "on_theme_preview", None):
+            self.on_theme_preview(self._sel_theme)
 
 
 class PluginManagerOverlay(QWidget):
@@ -2265,10 +2332,10 @@ class MainWindow(QMainWindow):
     task_status_signal = pyqtSignal(int, int, int)  # running, queued, finished
     task_detail_signal = pyqtSignal(object)  # bounded task metadata; no arguments/results
     text_send_failed_signal = pyqtSignal(str)  # restore only when input is still empty
+    theme_changed_signal = pyqtSignal(str)  # SystemThemeMonitor worker -> Qt UI thread
 
     def __init__(self, face_path: str):
         super().__init__()
-        apply_dark_theme(QApplication.instance(), C)
         self._requested_state = "INITIALISING"
         self._playback_active = False
         self._running_tasks = 0
@@ -2281,10 +2348,15 @@ class MainWindow(QMainWindow):
         self.task_detail_signal.connect(self._update_task_details)
         self.text_send_failed_signal.connect(self._restore_unsent_command)
         self.open_api_key_settings_signal.connect(self._open_api_key_settings)
+        self.theme_changed_signal.connect(self._on_system_theme_changed)
         self._face_path = face_path
 
         # Load customization from config
         _cfg = _read_full_config()
+        self._theme_preference = str(_cfg.get("ui_theme") or "system").strip().lower()
+        if self._theme_preference not in {"system", "dark", "light"}:
+            self._theme_preference = "system"
+        self._system_theme = "dark"  # watcher replaces this without blocking startup
         self._assistant_name: str = "EDITH"
         _display = _display_assistant_name(self._assistant_name)
         self._display_name = _display
@@ -2293,8 +2365,9 @@ class MainWindow(QMainWindow):
         _ui_color = (_cfg.get("ui_color") or "").strip()
         if _ui_color.lower() == "#00e5ff":
             _ui_color = DEFAULT_UI_COLOR
-        if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
-            apply_ui_accent(_ui_color)
+        self._ui_accent = _ui_color if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR else DEFAULT_UI_COLOR
+        apply_ui_theme(self._resolved_theme(), self._ui_accent)
+        apply_dark_theme(QApplication.instance(), C)
 
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowTitleHint
                             | Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowMinMaxButtonsHint
@@ -2457,6 +2530,11 @@ class MainWindow(QMainWindow):
         self._confirm_action_sig.connect(self._show_action_confirmation)
         self._cam_stop = threading.Event()
 
+        # OS appearance reads may invoke gsettings/defaults. Keep them off the
+        # Qt event loop and relay changes through the queued Qt signal above.
+        self._theme_monitor = SystemThemeMonitor(self.theme_changed_signal.emit, interval=2.0)
+        self._theme_monitor.start()
+
         # Camera preview overlay (child of central widget, positioned in resizeEvent)
         self._cam_preview = _CameraPreview(self.centralWidget())
 
@@ -2478,6 +2556,42 @@ class MainWindow(QMainWindow):
         sc_intr.activated.connect(self._escape_action)
         sc_focus = QShortcut(QKeySequence("Ctrl+K"), self)
         sc_focus.activated.connect(self._focus_command_input)
+
+    def _resolved_theme(self, preference: str | None = None) -> str:
+        selected = str(preference or self._theme_preference).lower()
+        return self._system_theme if selected == "system" else normalise_theme(selected)
+
+    def _render_theme(self, preference: str | None = None) -> None:
+        """Repaint native widgets in place without changing their geometry."""
+        old = current_palette()
+        apply_ui_theme(self._resolved_theme(preference), self._ui_accent)
+        retheme_all_widgets(old, current_palette())
+
+    def _preview_theme_preference(self, preference: str) -> None:
+        self._render_theme(preference)
+
+    def _save_theme_preference(self, preference: str) -> None:
+        preference = str(preference or "system").lower()
+        self._theme_preference = preference if preference in {"system", "dark", "light"} else "system"
+        self._render_theme()
+        try:
+            data = _read_full_config()
+            data["ui_theme"] = self._theme_preference
+            API_FILE.parent.mkdir(parents=True, exist_ok=True)
+            API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+            self._log.append_log(f"SYS: Appearance set to {self._theme_preference.title()}.")
+        except Exception as exc:
+            self._log.append_log(f"ERR: Theme preference save failed — {type(exc).__name__}: {exc}")
+
+    def _on_system_theme_changed(self, theme: str) -> None:
+        self._system_theme = normalise_theme(theme)
+        if self._theme_preference == "system":
+            self._render_theme()
+
+    def closeEvent(self, event):
+        if getattr(self, "_theme_monitor", None):
+            self._theme_monitor.stop()
+        super().closeEvent(event)
 
     def _show_url_prompt(self, request):
         try:
@@ -4094,6 +4208,7 @@ class MainWindow(QMainWindow):
             self._display_name,
             cfg.get("user_name", ""),
             cfg.get("ui_color", "") or DEFAULT_UI_COLOR,
+            self._theme_preference,
             parent=cw,
         )
         ow, oh = CustomizeOverlay._OW, CustomizeOverlay._OH
@@ -4104,7 +4219,9 @@ class MainWindow(QMainWindow):
             ow, oh,
         )
         ov.on_preview = self._preview_ui_color
+        ov.on_theme_preview = self._preview_theme_preference
         ov.saved.connect(self._apply_name_update)
+        ov.theme_saved.connect(self._save_theme_preference)
         ov.show()
         self._customize_overlay = ov
 
@@ -4129,6 +4246,7 @@ class MainWindow(QMainWindow):
         if ui_color:
             old = current_palette()
             if apply_ui_accent(ui_color):
+                self._ui_accent = ui_color.strip().lower()
                 # Tüm arayüzü (paneller, butonlar, kenarlıklar, HUD) canlı boya
                 retheme_all_widgets(old, current_palette())
                 color_changed = old["PRI"] != C.PRI
