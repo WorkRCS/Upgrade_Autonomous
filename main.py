@@ -79,7 +79,7 @@ from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
-from core.task_scheduler      import TaskScheduler, TaskSpec, parallel_read_only
+from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -729,9 +729,7 @@ class EdithLive:
         active = sum(item["status"] == "running" for item in states)
         queued = sum(item["status"] == "queued" for item in states)
         complete = sum(item["status"] == "succeeded" for item in states)
-        self.ui._win.task_status_signal.emit(
-            f"TASKS  {active} RUNNING  ·  {queued} QUEUED  ·  {complete} DONE"
-        )
+        self.ui._win.task_status_signal.emit(active, queued, complete)
 
     def _cancel_pending_tasks(self) -> None:
         """Qt callback: only pending work is cancelled, never running OS actions."""
@@ -748,6 +746,14 @@ class EdithLive:
             )
 
         loop.call_soon_threadsafe(_cancel)
+
+    async def _run_checked_tool(self, fc) -> types.FunctionResponse:
+        """Preserve real tool errors/cancellations, blocking dependent actions."""
+        response = await self._execute_tool(fc)
+        result = str(response.response.get("result", "") or "")
+        if activity_outcome(result) != "ok" or result.lower().startswith("cancelled"):
+            raise TaskReportedFailure(response)
+        return response
 
     async def _execute_tool_batch(self, calls) -> list[types.FunctionResponse]:
         """Parallelize independent read-only calls while preserving action order.
@@ -778,7 +784,7 @@ class EdithLive:
             specs.append(TaskSpec(
                 task_id=task_id,
                 label=describe_tool_activity(fc.name, dict(fc.args or {})),
-                run=lambda call=fc: self._execute_tool(call),
+                run=lambda call=fc: self._run_checked_tool(call),
                 priority=0 if fc.name == "system_status" else 10,
                 depends_on=dependencies,
                 exclusive=not safe,
@@ -792,6 +798,10 @@ class EdithLive:
         responses = []
         for fc, outcome in zip(calls, outcomes):
             if outcome.status == "succeeded":
+                responses.append(outcome.value)
+            elif outcome.value is not None:
+                # Tool reported its own error/cancellation; return its exact
+                # result to the model, without allowing dependent actions.
                 responses.append(outcome.value)
             else:
                 # Explicitly report a skipped/failed action to Gemini rather
