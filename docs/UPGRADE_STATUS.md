@@ -95,3 +95,11 @@ including tier and outcome metadata. Large code/message payloads are omitted
 from dispatcher receipts; provider keys and registered secrets are redacted.
 Tool paths invoked outside the dispatcher still need their own migration before
 they can be claimed as complete.
+
+Step 11 stores newly saved Gemini credentials in the OS keychain through
+`keyring`, then atomically removes the plaintext field only after keychain
+storage succeeds. Existing plaintext installations are migrated on read when a
+usable keychain appears. A headless system with no secure backend retains an
+explicitly-labelled legacy key rather than silently losing connectivity or
+claiming secure storage. Gemini runtime readers and the ElevenLabs TTS path use
+the shared secret layer; keys are registered with the log redactor.

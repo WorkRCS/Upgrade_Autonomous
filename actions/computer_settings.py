@@ -6,6 +6,7 @@ import time
 import subprocess
 import platform
 from pathlib import Path
+from core.secrets import get_gemini_api_key
 
 try:
     import pyautogui
@@ -36,8 +37,10 @@ def _get_base_dir() -> Path:
 
 def _get_api_key() -> str:
     path = _get_base_dir() / "config" / "api_keys.json"
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = get_gemini_api_key(path)
+    if not key:
+        raise RuntimeError("Gemini API key is not configured.")
+    return key
 
 def _get_macos_wifi_interface() -> str:
     try:

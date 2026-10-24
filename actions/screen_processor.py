@@ -35,6 +35,7 @@ except ImportError:
 
 from google import genai
 from google.genai import types as gtypes
+from core.secrets import get_gemini_api_key
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -63,9 +64,9 @@ def _save_config_key(key: str, value) -> None:
 
 
 def _get_api_key() -> str:
-    key = _load_config().get("gemini_api_key", "")
+    key = get_gemini_api_key(_CONFIG_PATH)
     if not key:
-        raise RuntimeError("gemini_api_key not found in config.")
+        raise RuntimeError("Gemini API key is not configured.")
     return key
 
 

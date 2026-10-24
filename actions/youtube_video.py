@@ -34,6 +34,7 @@ except ImportError:
     _TRANSCRIPT_OK = False
 
 from config import get_os, is_windows, is_mac, is_linux
+from core.secrets import get_gemini_api_key
 
 
 def _get_base_dir() -> Path:
@@ -58,8 +59,10 @@ _YT_VIDEO_FILTER = "EgIQAQ%3D%3D"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = get_gemini_api_key(API_CONFIG_PATH)
+    if not key:
+        raise RuntimeError("Gemini API key is not configured.")
+    return key
 
 
 def _open_url(url: str) -> None:

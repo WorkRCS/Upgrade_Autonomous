@@ -331,7 +331,13 @@ authorizing the start of Phase 2.
 
 ## Initial configuration
 
-On first launch, enter a Gemini API key in the setup screen. Configuration is stored locally in `config/api_keys.json`. Never commit API keys or personal configuration to source control.
+On first launch, enter a Gemini API key in the setup screen. EDITH stores new
+keys in the operating system keychain (Windows Credential Manager, macOS
+Keychain, or a supported Linux secret service) and keeps non-secret preferences
+in `config/api_keys.json`. Existing plaintext keys are migrated only after a
+successful keychain write. If a headless Linux system has no usable keychain,
+EDITH reports the legacy fallback instead of claiming secure storage. Never
+commit API keys or personal configuration to source control.
 
 The optional remote dashboard requires compatible browser and network access. Use the access code displayed by the desktop application. Keep the dashboard on a trusted network and do not expose it to the public internet without reviewing its security configuration.
 

@@ -89,6 +89,7 @@ from core.realtime_audio      import enqueue_latest_audio
 from core.narration_audio     import SpeechBuffer, SpeechPlayer
 from core.live_audio import response_pcm
 from core.execution import SERVICE as EXECUTION, configure_execution, run_code_tool
+from core.secrets import get_gemini_api_key
 from core.audio_meter          import pcm16_level
 from core.product_identity import PRODUCT_IDENTITY
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
@@ -114,8 +115,10 @@ RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = get_gemini_api_key(API_CONFIG_PATH)
+    if not key:
+        raise RuntimeError("Gemini API key is not configured in the OS keychain or legacy config.")
+    return key
 
 
 def _save_config_value(key: str, value) -> None:

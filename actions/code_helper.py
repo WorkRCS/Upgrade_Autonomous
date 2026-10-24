@@ -1,6 +1,7 @@
 import subprocess
 import shlex
 from core.execution import SERVICE, format_execution, stopped
+from core.secrets import get_gemini_api_key
 import sys
 import json
 import re
@@ -21,8 +22,10 @@ GEMINI_MODEL       = "gemini-flash-latest"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = get_gemini_api_key(API_CONFIG_PATH)
+    if not key:
+        raise RuntimeError("Gemini API key is not configured.")
+    return key
 
 
 def _get_gemini(model: str = GEMINI_MODEL):

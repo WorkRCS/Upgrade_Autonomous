@@ -24,11 +24,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 from datetime import datetime
+from core.secrets import get_gemini_api_key
 
 def _get_api_key() -> str:
     config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = get_gemini_api_key(config_path)
+    if not key:
+        raise RuntimeError("Gemini API key is not configured.")
+    return key
 
 
 def _gemini_client():

@@ -46,7 +46,8 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("class ApiKeyOverlay(QWidget):", self.ui)
         self.assertIn("client.aio.live.connect(", self.ui)
         self.assertIn("self._save_btn.setEnabled(False)", self.ui)
-        self.assertIn('data["gemini_api_key"] = key', self.ui)
+        self.assertIn("save_gemini_api_key(key, API_FILE)", self.ui)
+        self.assertIn("get_gemini_api_key(API_FILE)", self.ui)
         self.assertIn("open_api_key_settings_signal", self.ui)
         self.assertIn("self._request_api_key_reconnect", self.main)
 

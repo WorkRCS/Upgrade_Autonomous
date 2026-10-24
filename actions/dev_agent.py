@@ -2,6 +2,7 @@ from core.branding import prepare_projects_dir
 import subprocess
 import shutil
 from core.execution import SERVICE, format_execution, stopped
+from core.secrets import get_gemini_api_key
 import sys
 import json
 import re
@@ -23,8 +24,10 @@ MODEL_PLANNER    = "gemini-flash-latest"
 MODEL_WRITER     = "gemini-flash-latest"
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = get_gemini_api_key(API_CONFIG_PATH)
+    if not key:
+        raise RuntimeError("Gemini API key is not configured.")
+    return key
 
 
 def _get_model(model_name: str):

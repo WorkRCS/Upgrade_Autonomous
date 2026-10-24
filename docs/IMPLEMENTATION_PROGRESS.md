@@ -13,12 +13,12 @@ not certify physical hardware. Keep the owner's reference video and layout.
 | 8. Permission tiers integration | Implemented (dispatcher scope) | `tool_tier` now gives every legacy dispatch a backend floor; Tier 2/3 calls require local approval, redacted previews and broker enforcement. Dispatcher-owned approval context prevents duplicate prompts in controlled shell/code workers. 14 permission/execution regressions plus the full 225-test suite pass. Native OS elevation and every independent legacy subprocess remain later migration work. |
 | 9. Global kill switch | Implemented (scheduler scope) | ESC/Interrupt now invalidates the turn, cancels queued and active scheduler wrappers, drains pending tool batches, clears vision/audio state and stops `ExecutionService` owned child processes. Interrupted wrappers cannot return success. 4 new kill-switch/scheduler regressions plus the full 229-test suite pass. Independent legacy subprocesses outside the owned registry remain later migration work. |
 | 10. Complete audit stream | Implemented (dispatcher/platform scope) | Shared `AuditLog` now streams redacted controller/execution receipts to the existing Activity Log. Dispatcher start/finish receipts cover every routed tool, omit large payloads, and preserve tier/result metadata. 3 audit regressions plus the full 232-test suite pass. Independent tools invoked outside the dispatcher remain later migration work. |
-| 11. Keychain | Pending | Unpublished prototype; no migration in the running release |
+| 11. Keychain | Implemented (Gemini + ElevenLabs path) | `core/secrets.py` reads/writes OS keychain first, atomically removes legacy plaintext only after a successful secure write, and redacts registered values. All Gemini runtime readers use it; ElevenLabs retrieval uses the generic path. Headless systems without a usable keychain retain a clearly-labelled legacy value for later automatic migration. 4 keychain regressions plus the full 236-test suite pass. |
 | 12–13. Glass UI/live theme | Pending | No prototype UI published; original video/layout unchanged; controller theme probe is not yet live UI theming |
 | 14–15. Busy gate / voice approval | Pending | Existing scheduler and manual confirmation remain; voice approvals are not implemented |
 | 16–18. Providers/memory/device/HexStrike | Pending upgrades | Existing Gemini/Ollama and tools retained; no claim of new complete adapters/integration |
 | 19–20. Performance/release verification | Pending | Need target-device evidence, p50/p95 and full acceptance report |
 | 21. Main merge | Not authorized | Owner tests branch first, then explicitly requests merge |
 
-The next implementation task is step 7, then 8, then 9. Do not repeat completed
+The next implementation task is Step 12–13 UI/theme work. Do not repeat completed
 primitives or call later stages complete simply because a prototype exists.

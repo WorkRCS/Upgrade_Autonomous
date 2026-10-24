@@ -37,6 +37,7 @@ from core.icons import svg_icon
 from core.window_controls import initial_geometry
 from core.video_visual import LoopingVideo, draw_blended_video
 from core.dark_theme import apply_dark_theme
+from core.secrets import get_gemini_api_key, save_gemini_api_key
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -1417,18 +1418,20 @@ class ApiKeyOverlay(QWidget):
             self._save_btn.setEnabled(False)
             return
         try:
-            data = _read_full_config()
-            data["gemini_api_key"] = key
-            tmp_path = API_FILE.with_suffix(".json.tmp")
-            tmp_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
-            tmp_path.replace(API_FILE)
+            status = save_gemini_api_key(key, API_FILE)
         except Exception as exc:
             self._status.setText(f"Could not save API key: {type(exc).__name__}: {exc}")
             self._status.setStyleSheet(f"color: {C.RED}; background: transparent;")
             return
 
-        self._status.setText("Key saved. Reconnecting to Gemini Live…")
-        self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+        if status.storage == "legacy":
+            self._status.setText(
+                "Key saved, but no OS keychain is available. It will migrate automatically when one is available."
+            )
+            self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
+        else:
+            self._status.setText("Key saved to the OS keychain. Reconnecting to Gemini Live…")
+            self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
         self.saved.emit()
         self.hide()
 
@@ -3505,7 +3508,7 @@ class MainWindow(QMainWindow):
             """)
 
     def _open_api_key_settings(self):
-        current = _read_full_config().get("gemini_api_key", "")
+        current = get_gemini_api_key(API_FILE) or ""
         if self._api_key_overlay:
             self._api_key_overlay.hide()
         cw = self.centralWidget()
@@ -4313,7 +4316,7 @@ class MainWindow(QMainWindow):
         if not API_FILE.exists(): return False
         try:
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            return bool(d.get("gemini_api_key")) and bool(d.get("os_system"))
+            return bool(get_gemini_api_key(API_FILE)) and bool(d.get("os_system"))
         except Exception:
             return False
 
