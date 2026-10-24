@@ -9,6 +9,13 @@ import re
 
 # Shared Lucide-inspired outline style, authored for this application.
 _ICON_PATHS: dict[str, str] = {
+    # Dedicated EDITH application mark: E monogram inside a rounded panel.
+    # Unlike generic toolbar icons, this is used for the window/taskbar identity.
+    "edith-app": (
+        '<rect x="2" y="2" width="20" height="20" rx="5" />'
+        '<path d="M16.5 6.5H8v11h8.5M8 12h7" stroke-width="2.2" />'
+        '<path d="M5.5 5.5h.01M18.5 18.5h.01" />'
+    ),
     "mic": (
         '<rect x="9" y="2.5" width="6" height="12" rx="3"/>'
         '<path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/>'
