@@ -43,7 +43,7 @@ def save_initial_setup(gemini_api_key: str, os_system: str) -> None:
     """
     import tempfile
 
-    ensure_config_dir()
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     if CONFIG_FILE.exists():
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
