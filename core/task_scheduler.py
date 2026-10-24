@@ -135,7 +135,8 @@ class TaskScheduler:
                 self._update(spec.task_id, "interrupted")
                 raise
             except Exception as exc:
-                if spec.retry_safe and attempts <= spec.retry_limit:
+                if (spec.retry_safe and not isinstance(exc, TaskReportedFailure)
+                        and attempts <= spec.retry_limit):
                     await asyncio.sleep(min(0.25 * attempts, 1.0))
                     continue
                 self._update(spec.task_id, "failed")
