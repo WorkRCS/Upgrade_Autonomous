@@ -2607,45 +2607,9 @@ class MainWindow(QMainWindow):
     # Dedicated EDITH monogram icon; generated locally in standard Windows sizes.
     @staticmethod
     def _build_assistant_icon(out_path: Path) -> bool:
-        """Generate a distinct EDITH application ICO; no network or external images."""
-        try:
-            import PIL.Image
-            import PIL.ImageDraw
-        except ImportError:
-            return False
-
-        def _render(size: int):
-            scale = 4
-            side = size * scale
-            image = PIL.Image.new("RGBA", (side, side), (0, 0, 0, 0))
-            draw = PIL.ImageDraw.Draw(image)
-            pad = 2 * scale
-            width = max(2, int(side * 0.075))
-            draw.rounded_rectangle(
-                (pad, pad, side - pad - 1, side - pad - 1),
-                radius=int(side * 0.24), fill=(11, 13, 18, 255),
-                outline=(165, 180, 252, 255), width=width,
-            )
-            x0, x1 = int(side * 0.34), int(side * 0.70)
-            y0, y1 = int(side * 0.28), int(side * 0.72)
-            bar = max(3, int(side * 0.075))
-            draw.line((x0, y0, x0, y1), fill=(233, 236, 255, 255), width=bar)
-            for y in (y0, side // 2, y1):
-                draw.line((x0, y, x1, y), fill=(233, 236, 255, 255), width=bar)
-            return image.resize((size, size), PIL.Image.Resampling.LANCZOS)
-
-        try:
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            sizes = (256, 128, 64, 48, 32, 16)
-            frames = [_render(size) for size in sizes]
-            frames[0].save(
-                out_path, format="ICO", append_images=frames[1:],
-                sizes=[(size, size) for size in sizes],
-            )
-            return out_path.is_file() and out_path.stat().st_size > 0
-        except Exception as exc:
-            print(f"[EDITH] Icon creation failed: {type(exc).__name__}: {exc}")
-            return False
+        """Produce the permanent EDITH desktop icon from the same local asset."""
+        from core.app_icon import build_edith_icon
+        return build_edith_icon(out_path)
 
     @staticmethod
     def _create_lnk_windows(lnk: str, target: str, args: str,
