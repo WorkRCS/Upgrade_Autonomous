@@ -50,6 +50,7 @@ API_FILE   = CONFIG_DIR / "api_keys.json"
 # Modern Font Families
 FONT_MAIN = "Segoe UI" if platform.system() == "Windows" else "Helvetica Neue"
 FONT_MONO = "Consolas" if platform.system() == "Windows" else "Menlo"
+FONT_FALLBACKS = [FONT_MAIN, "Nirmala UI", "Noto Sans Bengali", "Noto Sans", "sans-serif"]
 
 def _read_full_config() -> dict:
     """Read api_keys.json config dict. Returns {} on any error."""
@@ -4486,7 +4487,7 @@ class _RootShim:
     def __init__(self, app: QApplication):
         self._app = app
     def mainloop(self):
-        self._app.exec()
+        return self._app.exec()
     def protocol(self, *_):
         pass
 
@@ -4503,6 +4504,12 @@ class EdithUI:
             except (AttributeError, OSError):
                 pass
         self._app = QApplication.instance() or QApplication(sys.argv)
+        from PyQt6.QtGui import QFontDatabase
+        for script in (QFontDatabase.WritingSystem.Bengali,):
+            if hasattr(QFontDatabase, "addApplicationFallbackFontFamily"):
+                from PyQt6.QtCore import QChar
+                for family in FONT_FALLBACKS[1:-1]:
+                    QFontDatabase.addApplicationFallbackFontFamily(QChar.Script.Script_Bengali, family)
         self._app.setStyle("Fusion")
         self._app.setApplicationName("EDITH")
         self._app.setWindowIcon(svg_icon("edith-app", C.PRI))

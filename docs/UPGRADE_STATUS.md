@@ -42,3 +42,18 @@ API-provider access, real microphones, cameras, screen permissions and OS window
 managers must be tested on target devices. Headless GUI tests validate application
 behavior; they do not certify those external integrations. No universal sub-second
 task-completion or unrestricted access to arbitrary devices is claimed.
+
+## CI/runtime follow-up
+
+- GitHub Actions failure reproduced from job 120833033039: Qt Multimedia could
+  not import because the Ubuntu runner lacked `libpulse.so.0`. Add libpulse0 and
+  font prerequisites; retain real video decoding tests. Check missing asset before
+  importing the optional media backend so errors identify the actual missing file.
+- Defer desktop action imports until after QApplication initialization, avoiding
+  automation libraries setting Windows DPI mode before Qt. Add Bengali font fallback.
+- Consume PCM inline parts directly instead of the Gemini SDK's mixed-part `.data`
+  convenience accessor; thought/text parts are not audio.
+- Add bounded runtime/exit and fatal-stack diagnostics. The supplied Windows log
+  contains no traceback, so an actual crash cause is not established by that log.
+- Keep the reference video byte-for-byte. The broader platform/web prototype remains
+  incomplete and is not included in this focused patch. No merge to main.

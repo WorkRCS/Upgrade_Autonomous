@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from concurrent.futures import Future
 from core.narration_audio import SpeechBuffer
+from core.live_audio import response_pcm
 
 
 def method(name, **globals_):
@@ -17,7 +18,7 @@ def method(name, **globals_):
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'EdithLive')
     fn = next(n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name)
     scope = {'asyncio': asyncio, 'time': time, 'datetime': datetime,
-             '_clean_transcript': lambda text: text.strip(), **globals_}
+             '_clean_transcript': lambda text: text.strip(), 'response_pcm':response_pcm, **globals_}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), str(source), 'exec'), scope)
     return scope[name]
 

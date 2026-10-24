@@ -52,35 +52,40 @@ from memory.memory_manager import (
     save_session_summary, pop_last_session,
 )
 
-from actions.file_processor import file_processor
-from actions.flight_finder     import flight_finder
-from actions.open_app          import open_app
-from actions.weather_report    import weather_action
-from actions.send_message      import send_message
-from actions.reminder          import reminder
-from actions.computer_settings import computer_settings
-from actions.screen_processor  import _capture_camera, _capture_screen
-from actions.youtube_video     import youtube_video
-from actions.desktop           import desktop_control
-from actions.browser_control   import browser_control
-from actions.file_controller   import file_controller
-from actions.code_helper       import code_helper
-from actions.dev_agent         import dev_agent
-from actions.web_search        import web_search as web_search_action
-from actions.computer_control  import computer_control
-from actions.game_updater      import game_updater
-from actions.system_monitor    import SystemMonitor, get_system_status
-from actions.proactive         import ProactiveEngine
-from actions.background_monitor import (
-    add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
-)
-from actions.web_search        import _news as _fetch_news_sync
+def _load_action_modules():
+    """Import desktop automation after QApplication owns Windows DPI awareness."""
+    global file_processor, flight_finder, open_app, weather_action, send_message, reminder, computer_settings, _capture_camera, _capture_screen, youtube_video, desktop_control, browser_control, file_controller, code_helper, dev_agent, web_search_action, computer_control, game_updater, SystemMonitor, get_system_status, ProactiveEngine, add_monitor, remove_monitor, list_monitors, monitor_check_all, _fetch_news_sync
+    from actions.file_processor import file_processor
+    from actions.flight_finder     import flight_finder
+    from actions.open_app          import open_app
+    from actions.weather_report    import weather_action
+    from actions.send_message      import send_message
+    from actions.reminder          import reminder
+    from actions.computer_settings import computer_settings
+    from actions.screen_processor  import _capture_camera, _capture_screen
+    from actions.youtube_video     import youtube_video
+    from actions.desktop           import desktop_control
+    from actions.browser_control   import browser_control
+    from actions.file_controller   import file_controller
+    from actions.code_helper       import code_helper
+    from actions.dev_agent         import dev_agent
+    from actions.web_search        import web_search as web_search_action
+    from actions.computer_control  import computer_control
+    from actions.game_updater      import game_updater
+    from actions.system_monitor    import SystemMonitor, get_system_status
+    from actions.proactive         import ProactiveEngine
+    from actions.background_monitor import (
+        add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
+    )
+    from actions.web_search        import _news as _fetch_news_sync
+
 from memory.config_manager     import get_brief_enabled
 from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
 from core.narration_audio     import SpeechBuffer, SpeechPlayer
+from core.live_audio import response_pcm
 from core.audio_meter          import pcm16_level
 from core.product_identity import PRODUCT_IDENTITY
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
@@ -646,6 +651,7 @@ TOOL_DECLARATIONS = [
 class EdithLive:
 
     def __init__(self, ui: EdithUI):
+        _load_action_modules()
         self.ui             = ui
         self._asst_name     = "EDITH"
         try:
@@ -1554,7 +1560,8 @@ class EdithLive:
                         self.set_speaking(False)
                         self.ui.write_log("AUDIO: Provider interrupted the response; cancelled audio was cleared.")
 
-                    if response.data:
+                    pcm = response_pcm(response)
+                    if pcm:
                         if self._interrupted or server_interrupted:
                             pass  # discard: interrupted
                         else:
@@ -1570,7 +1577,7 @@ class EdithLive:
                                 self._turn_done_event.clear()
                             # Preserve every byte, including audio received before the
                             # device opens. Only microphone traffic may drop stale chunks.
-                            self.audio_in_queue.put_nowait(response.data)
+                            self.audio_in_queue.put_nowait(pcm)
 
                     if response.server_content:
                         sc = response.server_content
@@ -2235,7 +2242,10 @@ class EdithLive:
             await asyncio.sleep(delay)
 
 def main():
+    from core.runtime_diagnostics import install_diagnostics, record_exit
+    install_diagnostics()
     ui = EdithUI("face.png")
+    ui._app.aboutToQuit.connect(lambda: record_exit("Qt aboutToQuit"))
 
     def runner():
         if not ui.wait_for_api_key():
@@ -2247,7 +2257,8 @@ def main():
             print("\n🔴 Shutting down...")
 
     threading.Thread(target=runner, daemon=True).start()
-    ui.root.mainloop()
+    exit_code = ui.root.mainloop()
+    record_exit(f"Qt event loop returned: {exit_code}")
 
 if __name__ == "__main__":
     main()

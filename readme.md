@@ -360,3 +360,23 @@ config/                  # Local settings and generated app resources
 
 See [LICENSE](LICENSE) for the terms that apply to this repository.
 
+
+## Runtime diagnostics and Linux media prerequisites
+
+Ubuntu/compatible Debian environments need Qt Multimedia's system libraries as
+well as the Python wheels. Install `libpulse0 libegl1 libopengl0
+libxkbcommon-x11-0 fonts-noto-core` with the distribution package manager. CI
+installs the same dependencies; media decoding tests remain enabled.
+
+Desktop automation imports are deferred until QApplication is created so Qt
+initializes Windows DPI awareness before automation libraries. Bengali text uses
+Nirmala UI / Noto Sans Bengali fallback where installed. The original bundled
+`assets/hud_reference.mp4` and its source URL remain unchanged.
+
+If the app closes unexpectedly, inspect `~/.edith/logs/runtime.log` and
+`~/.edith/logs/fatal.log` (`%USERPROFILE%\.edith\logs` on Windows). Startup,
+Qt shutdown and event-loop return are recorded separately from fatal stack traces.
+Runtime diagnostics omit exception values to avoid recording API credentials.
+FFmpeg codec metadata and Qt multimedia destruction messages alone do not prove
+a crash; capture the process exit code and these logs. In PowerShell, run
+`python main.py`, then `$LASTEXITCODE`.

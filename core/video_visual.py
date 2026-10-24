@@ -14,9 +14,9 @@ class LoopingVideo(QObject):
         self.active = False
         self.reduced = False
         try:
-            from PyQt6.QtMultimedia import QMediaPlayer, QVideoSink
             if not path.is_file():
                 raise FileNotFoundError('Bundled animation is missing')
+            from PyQt6.QtMultimedia import QMediaPlayer, QVideoSink
             self.player = QMediaPlayer(self)
             self.sink = QVideoSink(self)
             self.player.setVideoSink(self.sink)

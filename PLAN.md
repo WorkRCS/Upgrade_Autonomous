@@ -146,3 +146,11 @@ implementation; trusted callback names remain stable.
 
 Publication stays on `ui/edith-interface`; merge to `main` requires owner testing
 and an explicit subsequent merge request. No fake pass for real OS/API/hardware checks.
+
+## Owner constraint update: preserve reference video
+
+The latest owner instruction supersedes replacement of the center visual with a
+procedural sphere. Keep the exact bundled `assets/hud_reference.mp4`, its origin
+URL, loop and framing. Any future Tailwind/GSAP/Three.js work must preserve that
+video content; shader or library adoption does not authorize changing the visual.
+The unfinished web/platform prototype is not part of the published CI/runtime fix.
