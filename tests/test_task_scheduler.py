@@ -3,6 +3,8 @@
 import asyncio
 import unittest
 
+from core.action_activity import activity_outcome
+
 from core.task_scheduler import (
     TaskReportedFailure, TaskScheduler, TaskSpec, parallel_read_only,
 )
@@ -194,6 +196,17 @@ class TaskSchedulerTests(unittest.IsolatedAsyncioTestCase):
         ])
         self.assertEqual(result[0].status, "blocked")
         self.assertFalse(called)
+
+    def test_failed_file_reads_and_cancellations_are_not_success(self):
+        for result in (
+            "Access denied: protected-file.txt",
+            "Path not found: missing-folder",
+            "File not found: missing.txt",
+            "Not a directory: example",
+            "Cancelled by user; no action was executed.",
+        ):
+            with self.subTest(result=result):
+                self.assertEqual(activity_outcome(result), "error")
 
     def test_classifier_is_allowlist_only(self):
         self.assertTrue(parallel_read_only("web_search", {"mode": "research"}))
