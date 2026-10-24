@@ -228,21 +228,15 @@ def _draw_overlay(frame, reps, target, state, flash_until, countdown=None):
 def _record_session(reps: int, seconds: float) -> int:
     """Append session, return today's total reps. Never raises."""
     try:
-        path = BASE_DIR / "memory" / "long_term.json"
-        data = {}
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
+        from memory.memory_manager import load_memory, save_memory
+        data = load_memory()
         sessions = data.get("pushup_sessions")
         if not isinstance(sessions, list):
             sessions = []
         today = date.today().isoformat()
         sessions.append({"date": today, "reps": reps, "seconds": round(seconds)})
         data["pushup_sessions"] = sessions[-100:]
-        path.write_text(json.dumps(data, indent=2, ensure_ascii=False),
-                        encoding="utf-8")
+        save_memory(data)
         return sum(s.get("reps", 0) for s in sessions if s.get("date") == today)
     except Exception:
         return reps
@@ -375,3 +369,4 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
             f" Today's total: {today_total}. Deliver this to the user in "
             "their language with playful, lightly teasing motivational "
             "commentary about the number.")
+
