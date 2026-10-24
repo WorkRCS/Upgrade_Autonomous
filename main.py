@@ -94,6 +94,7 @@ from core.audio_meter          import pcm16_level
 from core.product_identity import PRODUCT_IDENTITY
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
 from core.task_view           import compact_task_view
+from core.voice_approval      import VoiceApprovalGate, is_interrupt_phrase
 from core.agent_reliability import (
     ActionDeduplicator, ActionEvidence, AgentTaskJournal,
     assess_action_evidence, format_task_history,
@@ -699,6 +700,9 @@ class EdithLive:
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
         self._kill_switch_generation = 0     # invalidates stale tool-batch completions
+        self._task_input_locked = False      # one user task batch owns input until it settles
+        self._awaiting_voice_approval = False
+        self._voice_approvals = VoiceApprovalGate()
         self.ui.on_text_command   = self._on_text_command
         self.ui.on_remote_clicked = self._make_remote_key
         self.ui._win.on_api_key_saved = self._request_api_key_reconnect
@@ -824,6 +828,8 @@ class EdithLive:
 
     def _cancel_global_tasks(self) -> None:
         """Run on the Live loop: cancel queued and active scheduler wrappers."""
+        self._awaiting_voice_approval = False
+        self._voice_approvals.cancel()
         stats = self._task_scheduler.cancel_all()
         dropped = 0
         queue = self._tool_call_queue
@@ -839,6 +845,83 @@ class EdithLive:
             f"{stats['queued']} queued, {stats['running']} active task(s); "
             f"discarded {dropped} pending tool batch(es)."
         )
+
+    async def _request_voice_approval(self, name: str, args: dict, label: str) -> bool | None:
+        """Ask for one exact spoken/typed consent reply without trusting the model.
+
+        ``None`` means that speech approval was unavailable or timed out, so the
+        caller must use the existing local confirmation sheet rather than run
+        the action.  A request token is held only in memory and binds the
+        response to this precise action fingerprint.
+        """
+        if not self.session:
+            return None
+        try:
+            request = self._voice_approvals.begin(name, args, timeout=25.0)
+        except RuntimeError:
+            return None
+        self._awaiting_voice_approval = True
+        self.ui.set_state("AWAITING APPROVAL")
+        self.ui.write_log(
+            f"ACTIVITY VOICE APPROVAL REQUIRED: {label}. Say 'confirm' / 'yes' to proceed, or 'cancel' / 'no'."
+        )
+        try:
+            # This asks the connected voice model to narrate the review prompt;
+            # it cannot approve the action.  Only ``observe`` below resolves it.
+            await self.session.send_client_content(
+                turns={"parts": [{"text": (
+                    "Ask the user to approve the pending action briefly. State that they must say exactly "
+                    "'confirm' or 'yes' to proceed, or 'cancel' or 'no' to stop it. Do not claim it has run."
+                )}]},
+                turn_complete=True,
+            )
+            decision = await self._voice_approvals.wait(request.token)
+        except Exception as exc:
+            print(f"[VoiceApproval] unavailable: {type(exc).__name__}")
+            self._voice_approvals.cancel(request.token)
+            decision = None
+        finally:
+            self._awaiting_voice_approval = False
+        if decision is True:
+            self.ui.write_log(f"ACTIVITY VOICE APPROVED: {label}")
+        elif decision is False:
+            self.ui.write_log(f"ACTIVITY VOICE DECLINED: {label}")
+        else:
+            self.ui.write_log(f"ACTIVITY VOICE APPROVAL TIMED OUT: {label}")
+        return decision
+
+    async def _obtain_sensitive_approval(self, name: str, args: dict, label: str, reason: str) -> bool:
+        """Voice first, with the existing explicit local sheet as a safe fallback."""
+        decision = await self._request_voice_approval(name, args, label)
+        if decision is not None:
+            return decision
+        try:
+            return bool(await asyncio.to_thread(
+                self.ui.confirm_sensitive_action, "Confirm sensitive action", reason,
+            ))
+        except Exception as exc:
+            print(f"[Confirmation] Could not obtain user approval: {type(exc).__name__}")
+            return False
+
+    def _handle_busy_input(self, text: str, source: str = "voice") -> bool:
+        """Allow only exact approval replies or the narrow local stop command."""
+        if is_interrupt_phrase(text):
+            self.ui.write_log(f"TASKS: {source.title()} interrupt accepted while work was active.")
+            self.interrupt()
+            return True
+        gate = getattr(self, "_voice_approvals", None)
+        decision = gate.observe(text) if gate is not None else None
+        if decision is not None:
+            self.ui.write_log(
+                f"ACTIVITY: {source.title()} approval reply received — "
+                f"{'approved' if decision else 'declined'}."
+            )
+            return True
+        if getattr(self, "_awaiting_voice_approval", False):
+            self.ui.write_log("ACTIVITY: Waiting for exact approval reply: confirm/yes or cancel/no.")
+        else:
+            self.ui.write_log("TASKS: Current work is still active; new commands were not queued. Use Interrupt to stop it.")
+        return False
 
     async def _run_checked_tool(self, fc, task_id: str) -> types.FunctionResponse:
         """Deduplicate side effects and attach honest, privacy-safe evidence."""
@@ -973,6 +1056,12 @@ class EdithLive:
         if not self._loop or not self._loop.is_running() or not self.session:
             self.ui.write_log("NET: Gemini Live is not connected; command kept for retry.")
             return False
+        if getattr(self, "_task_input_locked", False):
+            # The approval gate belongs to the Live loop.  Treat a typed
+            # confirmation exactly like a spoken one; any other new task is
+            # deliberately discarded while the active action is settling.
+            self._loop.call_soon_threadsafe(self._handle_busy_input, text, "text")
+            return True
         self._response_pending = True
         self.ui.set_state("THINKING")
         self._pending_text_started_at = time.perf_counter()
@@ -1324,15 +1413,9 @@ class EdithLive:
 
         if confirmation_reason:
             self.ui.write_log(f"ACTIVITY CONFIRMATION REQUIRED: {activity_label}")
-            try:
-                approved = await asyncio.to_thread(
-                    self.ui.confirm_sensitive_action,
-                    "Confirm sensitive action",
-                    confirmation_reason,
-                )
-            except Exception as exc:
-                approved = False
-                print(f"[Confirmation] Could not obtain user approval: {type(exc).__name__}")
+            approved = await self._obtain_sensitive_approval(
+                name, args, activity_label, confirmation_reason,
+            )
 
             if not approved:
                 result = "Cancelled by user; no action was executed."
@@ -1707,18 +1790,25 @@ class EdithLive:
                                 out_buf.append(txt)
 
                         if sc.input_transcription and sc.input_transcription.text:
-                            self._response_pending = True
-                            if not self._is_speaking:
-                                self.ui.set_state("THINKING")
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
-                                in_buf.append(txt)
                                 self._last_user_speech = time.monotonic()
+                                if getattr(self, "_task_input_locked", False):
+                                    # Work is exclusive from the user's point of
+                                    # view.  This path accepts only consent or
+                                    # stop, never a competing voice task.
+                                    self._handle_busy_input(txt, "voice")
+                                else:
+                                    self._response_pending = True
+                                    if not self._is_speaking:
+                                        self.ui.set_state("THINKING")
+                                    in_buf.append(txt)
 
                         if sc.turn_complete:
                             self.audio_in_queue.finish_turn()
                             self._response_pending = False
-                            if not self._is_speaking and self.audio_in_queue.empty():
+                            if (not self._is_speaking and self.audio_in_queue.empty()
+                                    and not getattr(self, "_awaiting_voice_approval", False)):
                                 self.ui.set_state("LISTENING")
                             if self._turn_done_event:
                                 self._turn_done_event.set()
@@ -1802,14 +1892,30 @@ class EdithLive:
         """Keep batch ordering and existing approvals without blocking receive."""
         while True:
             calls = await self._tool_call_queue.get()
-            fn_responses = await self._execute_tool_batch(calls)
-            self._response_pending = True
-            if not self._is_speaking:
-                self.ui.set_state("THINKING")
-            await self.session.send_tool_response(function_responses=fn_responses)
-            # voiceName is fixed at setup; reconnect only after delivering the response.
-            if self._reconfigure_reason and self._reconfigure_event:
-                self._reconfigure_event.set()
+            if getattr(self, "_task_input_locked", False):
+                # A model can still emit calls from audio received while a task
+                # is active. Acknowledge them explicitly without queueing a
+                # competing action; only the current approval/interrupt reply
+                # may affect the active batch.
+                blocked = [types.FunctionResponse(
+                    id=fc.id, name=fc.name,
+                    response={"result": "EDITH is still completing the current task. This new action was not queued."},
+                ) for fc in calls]
+                self.ui.write_log(f"TASKS: Ignored {len(blocked)} competing tool request(s) while work was active.")
+                await self.session.send_tool_response(function_responses=blocked)
+                continue
+            self._task_input_locked = True
+            try:
+                fn_responses = await self._execute_tool_batch(calls)
+                self._response_pending = True
+                if not self._is_speaking:
+                    self.ui.set_state("THINKING")
+                await self.session.send_tool_response(function_responses=fn_responses)
+                # voiceName is fixed at setup; reconnect only after delivering the response.
+                if self._reconfigure_reason and self._reconfigure_event:
+                    self._reconfigure_event.set()
+            finally:
+                self._task_input_locked = False
 
     async def _play_audio(self):
         """Observe a dedicated writer; no per-chunk executor/scheduler handoff."""
@@ -2148,6 +2254,14 @@ class EdithLive:
                     self._dashboard._command_queue.get(), timeout=0.5
                 )
                 if not text:
+                    continue
+                if getattr(self, "_task_input_locked", False):
+                    self._handle_busy_input(str(text), "remote text")
+                    if self._dashboard:
+                        await self._dashboard.broadcast({
+                            "type": "sys",
+                            "text": "EDITH is completing the active task; new commands are not queued.",
+                        })
                     continue
                 # Wait up to 8s for session to become ready after a wake
                 for _ in range(80):

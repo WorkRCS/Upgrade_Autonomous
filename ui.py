@@ -386,7 +386,7 @@ class HudCanvas(QWidget):
         self._tick += 1
         now = time.monotonic()
         mic_fresh = (now - self._mic_last_packet) < 0.65
-        listening = self.state in {"LISTENING", "THINKING", "WORKING"} and not self.muted and not self.speaking
+        listening = self.state in {"LISTENING", "THINKING", "WORKING", "AWAITING APPROVAL"} and not self.muted and not self.speaking
         drive = self._mic_target if listening and mic_fresh else 0.0
         self._mic_level += (drive - self._mic_level) * 0.36
         input_active = listening and mic_fresh and self._mic_level > 0.08
@@ -470,7 +470,8 @@ class HudCanvas(QWidget):
         text = state
         if self.muted and state not in {"WORKING", "THINKING", "SPEAKING"}:
             text = "MICROPHONE MUTED"
-        color = {"LISTENING": C.GREEN, "THINKING": C.PRI, "WORKING": C.ACC2, "SPEAKING": C.ACC}.get(state, C.TEXT)
+        color = {"LISTENING": C.GREEN, "THINKING": C.PRI, "WORKING": C.ACC2,
+                 "AWAITING APPROVAL": C.ACC2, "SPEAKING": C.ACC}.get(state, C.TEXT)
         painter.setPen(QColor(color))
         painter.setFont(QFont(FONT_MAIN, 14, QFont.Weight.Bold))
         painter.drawText(QRectF(10, self.height()-83, self.width()-20, 28), Qt.AlignmentFlag.AlignCenter, text)
@@ -4388,7 +4389,7 @@ class MainWindow(QMainWindow):
             label, color, level = "MIC  MUTED", C.MUTED_C, 0.0
         elif self.hud.speaking:
             label, color, level = "EDITH  SPEAKING", C.ACC, 0.0
-        elif self.hud.state in {"LISTENING", "THINKING", "WORKING"}:
+        elif self.hud.state in {"LISTENING", "THINKING", "WORKING", "AWAITING APPROVAL"}:
             fresh = time.monotonic() - self.hud._mic_last_packet < 0.65
             if fresh:
                 level = self.hud._mic_level
@@ -4420,7 +4421,7 @@ class MainWindow(QMainWindow):
 
     def _render_activity_state(self):
         state = "SPEAKING" if self._playback_active else self._requested_state
-        if self._running_tasks and state != "SPEAKING":
+        if self._running_tasks and state not in {"SPEAKING", "AWAITING APPROVAL"}:
             state = "WORKING"
         self.hud.state = state
         self.hud.speaking = (state == "SPEAKING")
