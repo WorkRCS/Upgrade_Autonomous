@@ -2,57 +2,25 @@
 
 A desktop voice assistant with real-time audio, optional screen/camera awareness, local computer controls, plugins, persistent memory, and an optional remote dashboard. It uses the existing Google Gemini Live API integration.
 
-## Professional desktop and remote workspace
+## Restored classic EDITH UI
 
-The desktop now places the conversation and command composer in the main workspace.
-A centered violet particle-ring animation and Activity, Files and System tabs keep diagnostics available
-without squeezing the conversation. Existing voice, model, plugin and action integrations
-continue through the `EdithUI` facade.
+The desktop layout and palette are restored from `938ffe5032575158d3b171b6e12d469fa99cefff`,
+the version before the last two UI redesigns. System metrics remain on the left,
+the voice/camera canvas stays in the center, and activity, files, commands and
+microphone controls remain on the right. The remote pages also use that version's
+appearance, with newer tested command/pairing JavaScript retained.
 
-Setup, Connections, Preferences, Plugins and Remote Access use scrollable native modal
-forms with consistent controls and persistent action footers. Preferences preview is
-reverted on cancellation; attachment removal clears the selected-file state. Sensitive
-action confirmations expire and concurrent requests are shown in order. The legacy
-YouTube URL prompt now runs through Qt on the UI thread.
+The center canvas keeps the violet looping particle ring. Native window controls,
+accessible in-app Close/Minimize/Maximize buttons, screen-aware initial geometry,
+confirmation expiry, attachment-state clearing and code-owned product identity remain.
+The Apple light theme, separate conversation workspace and context tabs are removed.
 
-The phone dashboard shares the desktop visual palette, larger touch controls, accessible
-labels and reduced-motion support. Pairing and command submissions expose their pending
-state; repeated pairing clicks are guarded. Microphone startup failures restore the voice
-control, and the file picker reports the existing 500 MB per-file server limit.
+`core/product_identity.py` defines EDITH, Neuron Intelligence (NL) and the application
+creator Sadik Laskar, separately from provider IDs and user memory. These labels do
+not imply that the creator trained the underlying provider model.
 
-Run the existing test suite plus the new workspace behavior gates:
-
-```bash
-QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
-python tests/check_inline_js.py
-node tests/check_phase5_js.js
-node tests/check_workspace_js.js
-```
-
-Real microphone/camera use, OS integration and phone-browser behavior still require
-manual testing on the target devices. Earlier Phase 4 notes below describe the previous
-layout; this workspace redesign supersedes those presentation details.
-
-## Apple-inspired UI and upgrade stages
-
-The desktop and remote UI use light grouped surfaces, rounded controls and bundled SVG
-icons. Startup geometry fits the available work area to keep the title bar on screen.
-Standard native title-bar controls are explicitly enabled. Close, Minimize and
-Maximize/Restore are also available in the app header, including full-screen mode;
-forms have an in-app Close action. Desktop styling does not require macOS or iOS.
-
-The center ring follows the supplied violet/blue reference appearance with an eight-second
-procedural loop, bounded shared raster cache, real microphone-driven scaling, mute and
-reduced-motion states. The cache contains at most 32 frames (about 12.5 MiB), and hidden
-windows reduce timer activity. There is no image download or additional dependency.
-
-Product metadata is defined in `core/product_identity.py`: EDITH, Neuron Intelligence
-(NL), application built by Sadik Laskar. This metadata is separate from provider IDs and
-user memory; it is not displayed as an owner/model banner in the UI. Code-owned metadata
-and prompt instructions do not constitute a guarantee of injection-proof model output.
-
-See [docs/UPGRADE_STATUS.md](docs/UPGRADE_STATUS.md) for delivered work, remaining runtime
-upgrades and the test-before-merge release gate.
+See [docs/UPGRADE_STATUS.md](docs/UPGRADE_STATUS.md) for runtime work still pending.
+Real provider, microphone, camera and OS workflows require target-device validation.
 
 ## Features
 

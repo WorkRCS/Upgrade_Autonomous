@@ -40,13 +40,6 @@ class WorkspaceTests(unittest.TestCase):
         self.window.deleteLater()
         self.app.processEvents()
 
-    def test_transcript_is_plain_and_diagnostics_stay_out(self):
-        view = self.window._conversation
-        view.append_line('NET: private diagnostic')
-        self.assertNotIn('private diagnostic', view.toPlainText())
-        view.append_line('You: <script>literal text</script>')
-        self.assertIn('<script>literal text</script>', view.toPlainText())
-        self.assertNotIn('How can I help', view.toPlainText())
 
     def test_remove_attachment_clears_all_selection_state(self):
         window = self.window
@@ -57,19 +50,6 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIsNone(window._drop_zone.current_file())
         self.assertIn('No file selected', window._file_hint.text())
 
-    def test_theme_dialog_scrolls_and_escape_restores_preview(self):
-        from PyQt6.QtWidgets import QScrollArea
-        window = self.window
-        original = self.ui.current_palette()
-        window._open_customize()
-        dialog = window._customize_overlay
-        self.app.processEvents()
-        self.assertIsNotNone(dialog.findChild(QScrollArea))
-        dialog._set_color('#45a37d')
-        self.assertNotEqual(original, self.ui.current_palette())
-        dialog.reject()
-        self.assertEqual({k:v.lower() for k,v in original.items()}, self.ui.current_palette())
-        self.assertFalse(dialog.isVisible())
 
     def test_confirmation_timeout_rejects_and_releases_waiter(self):
         import threading
@@ -92,34 +72,13 @@ class WorkspaceTests(unittest.TestCase):
         window = self.window
         window.resize(840, 560)
         self.app.processEvents()
-        for widget in [window._input, window._mute_btn, window._context_tabs]:
+        for widget in [window._input, window._mute_btn, window._right_panel]:
             self.assertTrue(widget.isVisible())
             point = widget.mapTo(window, widget.rect().bottomRight())
             self.assertLessEqual(point.x(), window.width())
             self.assertLessEqual(point.y(), window.height())
 
-    def test_preferences_save_error_keeps_form_and_draft(self):
-        from unittest.mock import patch
-        self.window._open_customize()
-        dialog = self.window._customize_overlay
-        dialog._user_input.setText('Retain my draft')
-        with patch.object(Path, 'replace', side_effect=PermissionError('test')):
-            dialog._save()
-        self.assertTrue(dialog.isVisible())
-        self.assertEqual(dialog._user_input.text(), 'Retain my draft')
-        self.assertIn('Could not save', dialog._feedback.text())
-        dialog.reject()
 
-    def test_camera_workspace_returns_to_center_animation(self):
-        window = self.window
-        window._on_cam_stream(True)
-        self.app.processEvents()
-        self.assertEqual(window._center_split.widget(0), window._hud_cam_stack)
-        window._on_cam_stream(False)
-        self.app.processEvents()
-        self.assertEqual(window._center_split.widget(0), window._hud_cam_stack)
-        self.assertEqual(window._center_split.widget(1), window._conversation)
-        self.assertEqual(window._hud_cam_stack.currentIndex(), 0)
 
     def test_window_controls_minimize_maximize_restore_and_close(self):
         from PyQt6.QtCore import Qt
@@ -157,33 +116,7 @@ class WorkspaceTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(window.isFullScreen())
 
-    def test_in_app_dialog_close_reverts_theme(self):
-        from PyQt6.QtWidgets import QPushButton
-        window = self.window
-        original = self.ui.current_palette()
-        window._open_customize()
-        dialog = window._customize_overlay
-        self.app.processEvents()
-        dialog._set_color('#a0458c')
-        close = next(b for b in dialog.findChildren(QPushButton)
-                     if b.accessibleName() == 'Close dialog')
-        close.click()
-        self.app.processEvents()
-        self.assertFalse(dialog.isVisible())
-        self.assertEqual({k: v.lower() for k, v in original.items()}, self.ui.current_palette())
 
-    def test_compact_content_result_can_be_read_and_dismissed(self):
-        window = self.window
-        window.resize(840, 560)
-        window._show_content('Analysis', 'A verified tool result')
-        self.app.processEvents()
-        self.assertTrue(window._content_panel.isVisible())
-        self.assertFalse(window._conversation.isVisible())
-        self.assertGreater(window._content_display.height(), 40)
-        window._dismiss_content()
-        self.app.processEvents()
-        self.assertTrue(window._conversation.isVisible())
-        self.assertFalse(window._content_panel.isVisible())
 
     def test_initial_geometry_preserves_title_bar_and_screen_origin(self):
         from PyQt6.QtCore import QRect
@@ -194,3 +127,24 @@ class WorkspaceTests(unittest.TestCase):
             self.assertTrue(screen.contains(geometry))
             self.assertGreaterEqual(geometry.top(), screen.top()+32)
             self.assertLessEqual(geometry.bottom(), screen.bottom()-16)
+
+    def test_original_layout_and_center_ring_are_present(self):
+        window = self.window
+        self.assertEqual(window._center_split.widget(0), window._hud_cam_stack)
+        self.assertTrue(window._left_panel.isVisible())
+        self.assertTrue(window._right_panel.isVisible())
+        self.assertFalse(hasattr(window, '_context_tabs'))
+        self.assertFalse(hasattr(window, '_conversation'))
+        window._on_cam_stream(True)
+        self.assertEqual(window._hud_cam_stack.currentIndex(), 1)
+        window._on_cam_stream(False)
+        self.assertEqual(window._hud_cam_stack.currentIndex(), 0)
+
+    def test_original_theme_preview_cancels_without_persistence(self):
+        original = self.ui.current_palette()
+        self.window._open_customize()
+        panel = self.window._customize_overlay
+        panel._set_color('#a0458c')
+        self.window._escape_action()
+        self.assertFalse(panel.isVisible())
+        self.assertEqual({k:v.lower() for k,v in original.items()}, self.ui.current_palette())

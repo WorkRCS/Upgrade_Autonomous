@@ -3,27 +3,16 @@
 All implementation remains on `ui/edith-interface`. Do not merge this branch into
 `main` until the owner has tested a pull of the branch and explicitly requests merge.
 
-## Delivered in this stage
+## Current UI after owner feedback
 
-- Initial geometry fits the available work area and screen origin, keeping the native
-  title bar on screen on shorter displays.
-- Explicit native title-bar Close, Minimize and Maximize flags, plus accessible
-  in-app window controls that remain usable in full-screen mode.
-- In-app dialog Close actions using the same cancel/preview-revert lifecycle as
-  Escape and the native close button.
-- Apple-inspired light grouped surfaces, rounded fields, blue accents, system
-  typography, consistent SVG icons and remote dashboard styling.
-- Missing chevron icon fixed; Activity, Files, System and command controls use
-  explicit vector icons rather than falling back to generic file artwork.
-- Centered violet particle-ring animation based on the supplied still-image
-  reference. Eight-second periodic loop, bounded shared frame cache, PCM-driven
-  input scaling, muted and reduced-motion states. A still image cannot specify
-  the original animation's exact motion.
-- Compact content/result view and camera-to-animation transitions retain access
-  to the composer, diagnostics and dismiss action.
-- Code-owned EDITH / Neuron Intelligence / NL / Sadik Laskar product metadata,
-  appended to the runtime prompt including prompt-file failure fallback. This is
-  a metadata foundation, not a guarantee of injection-proof model responses.
+- Restore the layout, desktop palette and remote page appearance from `938ffe5`,
+  before the two UI redesign commits `8219027` and `7eb2ab4`.
+- Retain the centered violet ring, bounded animation cache and real input feedback.
+- Retain working native/header window controls and screen-aware startup geometry.
+- Retain confirmation expiry/serialization, selected-file clearing, newer remote
+  command/pairing behavior and Neuron Intelligence product metadata.
+- Remove the Apple light theme and separate conversation/context-tab layout.
+- This is a forward UI restoration commit, not a branch reset or a merge to main.
 
 ## Remaining stages
 

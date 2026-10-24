@@ -19,10 +19,10 @@ class ProductContractTests(unittest.TestCase):
     def test_desktop_brand_is_edith_and_not_user_customizable(self):
         self.assertIn('UI_BRAND = "EDITH"', self.ui)
         self.assertIn('self.setWindowTitle("EDITH • PERSONAL ASSISTANT")', self.ui)
-        self.assertIn('self._sub_lbl.setText("Your intelligent workspace")', self.ui)
+        self.assertIn('self._sub_lbl.setText("PERSONAL ASSISTANT SYSTEM  •  VOICE  •  VISION")', self.ui)
         self.assertNotIn("self._name_input", self.ui)
         self.assertNotIn("MARK LI", self.ui)
-        self.assertIn("self._connection_lbl = QLabel", self.ui)
+        self.assertIn("EDITH SYSTEMS", self.ui)
         self.assertNotIn("EVEN DEAD, I'M THE HERO", self.ui)
 
     def test_hud_uses_a_neutral_generated_visual(self):
@@ -43,7 +43,7 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn("Use the configured male voice", self.main)
 
     def test_key_editor_validates_against_live_api_before_saving(self):
-        self.assertIn("class ApiKeyOverlay(SurfaceDialog):", self.ui)
+        self.assertIn("class ApiKeyOverlay(QWidget):", self.ui)
         self.assertIn("client.aio.live.connect(", self.ui)
         self.assertIn("self._save_btn.setEnabled(False)", self.ui)
         self.assertIn('data["gemini_api_key"] = key', self.ui)

@@ -77,7 +77,7 @@ class Phase4QtSmokeTests(unittest.TestCase):
         window.resize(840, 560)
         self.app.processEvents()
         self.assertLessEqual(window._right_panel.width(), 300)
-        self.assertLessEqual(window._left_panel.width(), window._context_tabs.width())
+        self.assertLessEqual(window._left_panel.width(), 150)
         window._input.setText("retain typed text")
         window._focus_command_input()
         self.assertTrue(window._input.hasFocus())
