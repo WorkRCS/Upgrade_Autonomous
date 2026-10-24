@@ -85,6 +85,8 @@ class TaskScheduler:
         self.on_update = on_update
         self._states: dict[str, dict] = {}
         self._exclusive_lock = asyncio.Lock()
+        self._running_tasks: dict[asyncio.Task, str] = {}
+        self._cancelled_running: set[str] = set()
 
     def snapshot(self) -> list[dict]:
         """Return metadata only, never tool parameters, results or secrets."""
@@ -116,6 +118,23 @@ class TaskScheduler:
             self._notify()
         return cancelled
 
+    def cancel_all(self) -> dict[str, int]:
+        """Cancel queued work and interrupt scheduler coroutines already running.
+
+        The tool itself may be inside a non-cancellable OS thread.  Cancelling
+        the asyncio wrapper prevents a stale success from reaching the model;
+        the shared process registry/ExecutionService is responsible for killing
+        owned child processes separately.
+        """
+        queued = self.cancel_queued()
+        running = 0
+        for task, task_id in list(self._running_tasks.items()):
+            if not task.done():
+                self._cancelled_running.add(task_id)
+                task.cancel()
+                running += 1
+        return {"queued": queued, "running": running}
+
     async def _execute(self, spec: TaskSpec) -> TaskResult:
         # A queued-cancel click can land between task creation and first run.
         if self._states[spec.task_id]["status"] == "cancelled":
@@ -134,8 +153,16 @@ class TaskScheduler:
                 self._update(spec.task_id, "succeeded")
                 return TaskResult(spec.task_id, "succeeded", value=value, attempts=attempts)
             except asyncio.CancelledError:
-                # Thread-based OS actions might continue. Never claim cancellation.
+                # Thread-based OS actions might continue, but this scheduler
+                # coroutine must never claim their eventual result succeeded.
                 self._update(spec.task_id, "interrupted")
+                if spec.task_id in self._cancelled_running:
+                    self._cancelled_running.discard(spec.task_id)
+                    return TaskResult(
+                        spec.task_id, "interrupted",
+                        error="Interrupted by the global kill switch",
+                        attempts=attempts,
+                    )
                 raise
             except Exception as exc:
                 if (spec.retry_safe and not isinstance(exc, TaskReportedFailure)
@@ -216,6 +243,7 @@ class TaskScheduler:
                     pending.remove(spec.task_id)
                     task = asyncio.create_task(self._execute(spec))
                     running[task] = spec.task_id
+                    self._running_tasks[task] = spec.task_id
 
                 if not running:
                     if pending:
@@ -230,7 +258,19 @@ class TaskScheduler:
                 done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     key = running.pop(task)
-                    finished[key] = task.result()
+                    self._running_tasks.pop(task, None)
+                    try:
+                        finished[key] = task.result()
+                    except asyncio.CancelledError:
+                        if key in self._cancelled_running:
+                            self._cancelled_running.discard(key)
+                            self._update(key, "interrupted")
+                            finished[key] = TaskResult(
+                                key, "interrupted",
+                                error="Interrupted by the global kill switch",
+                            )
+                        else:
+                            raise
         except asyncio.CancelledError:
             # Only pending tasks can be safely cancelled. Running tasks can
             # outlive the Live session and will report their own final state.
@@ -239,3 +279,4 @@ class TaskScheduler:
             raise
 
         return [finished[key] for key in identifiers]
+

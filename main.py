@@ -695,6 +695,7 @@ class EdithLive:
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
+        self._kill_switch_generation = 0     # invalidates stale tool-batch completions
         self.ui.on_text_command   = self._on_text_command
         self.ui.on_remote_clicked = self._make_remote_key
         self.ui._win.on_api_key_saved = self._request_api_key_reconnect
@@ -793,6 +794,24 @@ class EdithLive:
             )
 
         loop.call_soon_threadsafe(_cancel)
+
+    def _cancel_global_tasks(self) -> None:
+        """Run on the Live loop: cancel queued and active scheduler wrappers."""
+        stats = self._task_scheduler.cancel_all()
+        dropped = 0
+        queue = self._tool_call_queue
+        if queue is not None:
+            while True:
+                try:
+                    queue.get_nowait()
+                    dropped += 1
+                except asyncio.QueueEmpty:
+                    break
+        self.ui.write_log(
+            "TASKS: Global interrupt — cancelled "
+            f"{stats['queued']} queued, {stats['running']} active task(s); "
+            f"discarded {dropped} pending tool batch(es)."
+        )
 
     async def _run_checked_tool(self, fc, task_id: str) -> types.FunctionResponse:
         """Deduplicate side effects and attach honest, privacy-safe evidence."""
@@ -978,13 +997,24 @@ class EdithLive:
         """Cancel queued narration and signal the native writer to abort playback."""
         self._interrupted = True
         self._response_pending = False
+        self._kill_switch_generation += 1
         EXECUTION.cancel()  # Stop tracked code/shell processes; whole-agent cancellation is a later gate.
+        loop = self._loop
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(self._cancel_global_tasks)
         q = self.audio_in_queue
         if q is not None:
             q.clear()  # Thread-safe; also aborts queued device playback on the writer thread.
         self.set_speaking(False)
         if self._turn_done_event:
             self._turn_done_event.clear()
+        self._pending_vision = None
+        self._vision_busy = False
+        self._vision_close_pending = False
+        try:
+            self.ui.stop_camera_stream()
+        except Exception:
+            pass
         self.ui.write_log("SYS: Interrupted — listening...")
 
     def speak(self, text: str):

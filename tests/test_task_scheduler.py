@@ -127,6 +127,56 @@ class TaskSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r.status for r in results], ["succeeded", "cancelled"])
         self.assertEqual(called, [])
 
+    async def test_global_cancel_interrupts_running_wrapper_and_never_reports_success(self):
+        scheduler = TaskScheduler(max_concurrency=2)
+        started = asyncio.Event()
+        release = asyncio.Event()
+        completed = []
+
+        async def running():
+            started.set()
+            try:
+                await release.wait()
+            finally:
+                completed.append("finally")
+            return "must-not-be-used"
+
+        batch = asyncio.create_task(scheduler.run_batch([
+            TaskSpec("active", "Active operation", running, exclusive=True),
+        ]))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        stats = scheduler.cancel_all()
+        self.assertEqual(stats["running"], 1)
+        results = await asyncio.wait_for(batch, timeout=2)
+        self.assertEqual(results[0].status, "interrupted")
+        self.assertIsNone(results[0].value)
+        self.assertEqual(completed, ["finally"])
+
+    async def test_global_cancel_marks_queued_dependents_without_starting_them(self):
+        scheduler = TaskScheduler(max_concurrency=1)
+        started = asyncio.Event()
+        release = asyncio.Event()
+        called = []
+
+        async def first():
+            started.set()
+            await release.wait()
+
+        async def queued():
+            called.append(True)
+
+        batch = asyncio.create_task(scheduler.run_batch([
+            TaskSpec("first", "First", first),
+            TaskSpec("queued", "Queued", queued),
+        ]))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        stats = scheduler.cancel_all()
+        self.assertEqual(stats["queued"], 1)
+        release.set()
+        results = await asyncio.wait_for(batch, timeout=2)
+        self.assertEqual([r.status for r in results], ["interrupted", "cancelled"])
+        self.assertEqual(called, [])
+
     async def test_failure_blocks_dependent_actions(self):
         scheduler = TaskScheduler()
         called = []
@@ -235,3 +285,4 @@ class TaskSchedulerTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

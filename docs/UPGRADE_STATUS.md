@@ -79,4 +79,12 @@ tools. Tier 2 and Tier 3 calls cannot be authorized by model-supplied flags:
 the local dialog approves a redacted argument preview, the broker re-checks
 the floor, and a dispatcher-owned context is propagated to controlled worker
 threads. Native OS elevation and independent legacy subprocesses are still
-explicitly pending. No UI redesign or video asset replacement is included.
+explicitly pending.
+
+The Step 9 global interrupt now cancels queued and active scheduler wrappers,
+drains pending tool batches, invalidates the current turn, clears queued audio
+and vision state, and stops owned shell/code child processes. A cancelled
+wrapper returns an interrupted result rather than a stale success. Subprocesses
+started by independent legacy paths are not falsely claimed as killable until
+they are migrated into the owned registry. No UI redesign or video asset
+replacement is included.
