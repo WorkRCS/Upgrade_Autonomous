@@ -37,6 +37,26 @@ The **TEST KEY** action opens a Live session, sends a short test prompt, waits f
 
 When the settings panel opens, its local-LLM section reads the actual configured provider, endpoint, and model from `core.llm_client`, then checks whether the endpoint is reachable and whether the configured model appears available. **TEST LOCAL LLM** sends a real short inference request through that same `call_llm` client and reports its response time. These checks do not replace or overwrite the existing local-LLM configuration. The assistant prompt prioritizes concise, direct replies and immediate tool use for straightforward tasks while preserving safety confirmations and target verification.
 
+
+## Phase 3 safe multitasking
+
+EDITH uses a bounded asynchronous scheduler (core/task_scheduler.py) for Gemini
+Live batches containing multiple tool calls. Up to four independent, explicitly
+allowlisted **read-only** operations may run together. Results are returned to
+Gemini in the original call order. Actions that manipulate the desktop,
+files, messages, voice/session settings, external apps, or unknown plugins
+remain serialized behind dependency barriers and retain the existing local
+confirmation checks. Failed or cancelled prerequisites block dependent work.
+
+The existing UI's Activity Log has a compact TASKS running/queued indicator and
+a **CANCEL WAITING** button. This cancels queued actions only; in-progress OS
+actions are not stopped or rolled back. Task status stores short action labels,
+not raw parameters or file contents. Priorities, dependency tracking, and safe
+opt-in retry support are included in the scheduler, while Live side-effect tools
+are never automatically retried. See TESTING.md for the Phase 3 Windows release
+gate. No provider selection, Gemini key, local model endpoint or model setting is
+overwritten by this update.
+
 ## Phase 2 latency improvements
 
 EDITH now schedules text input directly onto the existing Gemini Live event loop
