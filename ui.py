@@ -1024,6 +1024,12 @@ class ApiKeyOverlay(QWidget):
         self._local_test_btn.setToolTip("Run a real inference request through EDITH's existing core.llm_client configuration.")
         self._local_test_btn.clicked.connect(self._test_local_llm)
         local_row.addWidget(self._local_test_btn)
+        self._provider_settings_btn = QPushButton("PROVIDERS…")
+        self._provider_settings_btn.setFixedHeight(32)
+        self._provider_settings_btn.setStyleSheet(self._secondary_style())
+        self._provider_settings_btn.setToolTip("Configure and test Ollama, OpenAI, Anthropic, xAI, or an OpenAI-compatible server.")
+        self._provider_settings_btn.clicked.connect(self._open_provider_settings)
+        local_row.addWidget(self._provider_settings_btn)
         layout.addLayout(local_row)
 
         local_hint = QLabel("Uses the existing llm_provider / llm_url / llm_model settings from config/api_keys.json. Server reachability and a real model response are checked separately.")
@@ -1469,6 +1475,156 @@ class ApiKeyOverlay(QWidget):
             self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
         self.saved.emit()
         self.hide()
+
+    def _open_provider_settings(self):
+        parent = self.parentWidget() or self
+        panel = ProviderSettingsOverlay(parent=parent)
+        panel.saved.connect(self._provider_settings_saved)
+        width, height = ProviderSettingsOverlay._OW, ProviderSettingsOverlay._OH
+        panel.setGeometry(max(8, (parent.width() - width) // 2),
+                          max(8, (parent.height() - height) // 2),
+                          min(width, parent.width() - 16), min(height, parent.height() - 16))
+        panel.show()
+        panel.raise_()
+        self._provider_settings_overlay = panel
+
+    def _provider_settings_saved(self):
+        self._refresh_local_llm_config()
+        self._local_info.setText("LOCAL AGENT CONNECTION  PROVIDER SETTINGS SAVED · TEST AGAIN TO VERIFY")
+        self._local_info.setStyleSheet(
+            f"color: {C.ACC2}; background: transparent; border: none; font-weight: 700;"
+        )
+
+
+class ProviderSettingsOverlay(QWidget):
+    """Provider-specific endpoint/model/key editor; the Gemini Live editor remains above."""
+
+    saved = pyqtSignal()
+    _test_result = pyqtSignal(object)
+    _OW, _OH = 500, 500
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            ProviderSettingsOverlay {{ background: {C.PANEL}; border: 1px solid {C.BORDER_B}; border-radius: 12px; }}
+        """)
+        self._tested_signature: tuple[str, str, str, str] | None = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSpacing(8)
+
+        title = QLabel("TEXT MODEL PROVIDERS")
+        title.setFont(QFont(FONT_MAIN, 13, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
+        layout.addWidget(title)
+        hint = QLabel("Gemini Live voice remains configured separately. Test a provider before saving its endpoint, model and optional OS-keychain credential.")
+        hint.setWordWrap(True); hint.setFont(QFont(FONT_MAIN, 8))
+        hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        layout.addWidget(hint)
+
+        self._provider = QComboBox()
+        for identifier, label in (("ollama", "Ollama (local)"), ("openai", "OpenAI / ChatGPT"),
+                                  ("anthropic", "Anthropic Claude"), ("xai", "xAI Grok"),
+                                  ("openai_compatible", "OpenAI-compatible local server")):
+            self._provider.addItem(label, identifier)
+        self._provider.setAccessibleName("Text model provider")
+        layout.addWidget(self._field_label("PROVIDER")); layout.addWidget(self._provider)
+        self._url = QLineEdit(); self._model = QLineEdit(); self._key = QLineEdit()
+        self._key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._key.setPlaceholderText("Required for cloud providers; never written to activity logs")
+        for title_text, field in (("ENDPOINT", self._url), ("MODEL", self._model), ("API KEY", self._key)):
+            layout.addWidget(self._field_label(title_text)); field.setFixedHeight(32); field.setStyleSheet(self._field_style()); layout.addWidget(field)
+        self._status = QLabel("Select a provider, then test a real minimal response.")
+        self._status.setWordWrap(True); self._status.setMinimumHeight(36)
+        self._status.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        layout.addWidget(self._status)
+        row = QHBoxLayout(); row.setSpacing(8)
+        test = QPushButton("TEST CONNECTION"); save = QPushButton("SAVE PROVIDER"); close = QPushButton("CLOSE")
+        self._test = test; self._save = save
+        for button in (test, close): button.setStyleSheet(ApiKeyOverlay._secondary_style()); button.setFixedHeight(34)
+        save.setStyleSheet(f"QPushButton {{ background:{C.PRI}; color:{C.DARK}; border:1px solid {C.PRI}; border-radius:6px; font-weight:700; padding:0 12px; }} QPushButton:disabled {{ background:{C.PANEL2}; color:{C.TEXT_DIM}; border-color:{C.BORDER}; }}")
+        save.setFixedHeight(34); save.setEnabled(False)
+        test.clicked.connect(self._test_connection); save.clicked.connect(self._save_provider); close.clicked.connect(self.hide)
+        row.addWidget(test); row.addWidget(save); row.addWidget(close); layout.addLayout(row)
+        self._provider.currentIndexChanged.connect(self._provider_changed)
+        for field in (self._url, self._model, self._key): field.textChanged.connect(lambda _text: self._save.setEnabled(False))
+        self._test_result.connect(self._finish_test)
+        self._load_current()
+
+    @staticmethod
+    def _field_style() -> str:
+        return f"QLineEdit, QComboBox {{ background:{C.DARK}; color:{C.TEXT}; border:1px solid {C.BORDER}; border-radius:5px; padding:5px 8px; }} QLineEdit:focus, QComboBox:focus {{ border-color:{C.PRI}; }}"
+
+    @staticmethod
+    def _field_label(text: str) -> QLabel:
+        label = QLabel(text); label.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold)); label.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        return label
+
+    def _signature(self) -> tuple[str, str, str, str]:
+        return (str(self._provider.currentData()), self._url.text().strip().rstrip("/"), self._model.text().strip(), self._key.text().strip())
+
+    def _load_current(self):
+        from core.provider_registry import load_provider_settings, provider_api_key
+        settings = load_provider_settings(API_FILE)
+        index = self._provider.findData(settings["provider"])
+        self._provider.setCurrentIndex(max(0, index))
+        self._url.setText(settings["url"]); self._model.setText(settings["model"])
+        saved_key = provider_api_key(settings["provider"], API_FILE) or ""
+        self._key.setText(saved_key)
+        self._provider_changed()
+
+    def _provider_changed(self, *_args):
+        from core.provider_registry import provider_spec
+        spec = provider_spec(self._provider.currentData())
+        if not self._url.text().strip() or self._url.property("provider_default"):
+            self._url.setText(spec.default_url); self._url.setProperty("provider_default", True)
+        if not self._model.text().strip() or self._model.property("provider_default"):
+            self._model.setText(spec.default_model); self._model.setProperty("provider_default", True)
+        self._key.setEnabled(bool(spec.secret_name))
+        self._key.setPlaceholderText("Not required for this local provider" if not spec.secret_name else "API key stored through the OS keychain")
+        self._save.setEnabled(False)
+
+    def _test_connection(self):
+        if not self._url.text().strip() or not self._model.text().strip():
+            self._status.setText("Endpoint and model are required."); return
+        signature = self._signature(); self._test.setEnabled(False); self._save.setEnabled(False)
+        self._status.setText("Sending a minimal real provider request…")
+        self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
+        def worker():
+            from core.provider_registry import probe_provider
+            result = probe_provider(*signature[:3], api_key=signature[3] or None)
+            self._test_result.emit((signature, result))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_test(self, payload):
+        self._test.setEnabled(True)
+        signature, result = payload
+        if signature != self._signature():
+            self._status.setText("Settings changed during the test; test the current values again.")
+            self._status.setStyleSheet(f"color: {C.ACC2}; background: transparent;"); return
+        if result.get("ok"):
+            self._tested_signature = signature; self._save.setEnabled(True)
+            self._status.setText(f"Connection passed · {result.get('latency_ms')} ms · model responded.")
+            self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+        else:
+            self._tested_signature = None; self._save.setEnabled(False)
+            self._status.setText(f"Connection failed · {result.get('error')}")
+            self._status.setStyleSheet(f"color: {C.RED}; background: transparent;")
+
+    def _save_provider(self):
+        signature = self._signature()
+        if signature != self._tested_signature:
+            self._status.setText("Test the exact provider settings before saving."); return
+        try:
+            from core.provider_registry import save_provider_settings
+            save_provider_settings(API_FILE, *signature)
+        except Exception as exc:
+            self._status.setText(f"Could not save provider: {type(exc).__name__}: {exc}")
+            self._status.setStyleSheet(f"color: {C.RED}; background: transparent;"); return
+        self._status.setText("Provider settings saved. The next local-agent request uses this provider.")
+        self._status.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+        self.saved.emit(); self.hide()
 
 
 class SetupOverlay(QWidget):
