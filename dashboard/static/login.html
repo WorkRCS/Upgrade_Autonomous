@@ -167,16 +167,27 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ device_token: devTok }),
         });
-        const d = await r.json();
-        if (d.ok && d.token) {
-          sessionStorage.setItem('jarvis_key', d.key);
-          sessionStorage.setItem('jarvis_token', d.token);
-          location.replace('/');
-          return;
+        if (r.status === 401 || r.status === 403) {
+          // Only explicit rejection invalidates pairing. An offline phone,
+          // timeout or temporary server error must never destroy saved pairing.
+          localStorage.removeItem('jarvis_device_token');
+          document.getElementById('err').textContent = 'Pairing expired — enter a new access code.';
+        } else if (r.ok) {
+          const d = await r.json();
+          if (d.ok && d.token) {
+            sessionStorage.setItem('jarvis_key', d.key);
+            sessionStorage.setItem('jarvis_token', d.token);
+            location.replace('/');
+            return;
+          }
+        } else {
+          document.getElementById('err').textContent =
+            'Connection unavailable — pairing saved. Retry when the network returns.';
         }
-      } catch (_) {}
-      // Device token rejected (server restarted) — clear it and show normal form
-      localStorage.removeItem('jarvis_device_token');
+      } catch (_) {
+        document.getElementById('err').textContent =
+          'Offline — saved pairing kept. Retry when the network returns.';
+      }
       document.getElementById('reconnecting').style.display = 'none';
     })();
 
