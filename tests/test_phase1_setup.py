@@ -155,6 +155,58 @@ class BrandingAndStartupTests(unittest.TestCase):
         self.assertNotIn("UPLOADS_DIR = _make_uploads_dir()", dash)
         self.assertIn("def _certificate_paths()", dash)
 
+    def test_first_run_setup_preserves_existing_cloud_and_local_credentials(self):
+        old_path = config_manager.CONFIG_FILE
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                config_manager.CONFIG_FILE = Path(tmp) / "api_keys.json"
+                saved = {
+                    "gemini_api_key": "previous-key",
+                    "llm_provider": "openai",
+                    "llm_url": "http://127.0.0.1:1234",
+                    "llm_model": "custom-local-model",
+                    "voice_mode": "male",
+                    "plugins_enabled": {"notes": False},
+                    "user_name": "Person",
+                }
+                import json
+                config_manager.CONFIG_FILE.write_text(json.dumps(saved), encoding="utf-8")
+                config_manager.save_initial_setup("new-gemini-key", "Windows")
+                after = config_manager.load_api_keys()
+                for key in ("llm_provider", "llm_url", "llm_model",
+                            "voice_mode", "plugins_enabled", "user_name"):
+                    self.assertEqual(after[key], saved[key], key)
+                self.assertEqual(after["gemini_api_key"], "new-gemini-key")
+                self.assertEqual(after["os_system"], "Windows")
+                self.assertEqual(after["assistant_name"], "EDITH")
+        finally:
+            config_manager.CONFIG_FILE = old_path
+
+    def test_first_run_setup_refuses_to_overwrite_corrupt_config(self):
+        old_path = config_manager.CONFIG_FILE
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                config_manager.CONFIG_FILE = Path(tmp) / "api_keys.json"
+                bad_data = '{"gemini_api_key": "dont-replace"'
+                config_manager.CONFIG_FILE.write_text(bad_data, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    config_manager.save_initial_setup("new-key", "Windows")
+                self.assertEqual(
+                    config_manager.CONFIG_FILE.read_text(encoding="utf-8"), bad_data,
+                )
+        finally:
+            config_manager.CONFIG_FILE = old_path
+
+    def test_initial_setup_creates_new_config_without_old_brand(self):
+        old_path = config_manager.CONFIG_FILE
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                config_manager.CONFIG_FILE = Path(tmp) / "config" / "api_keys.json"
+                config_manager.save_initial_setup("api-key", "Windows")
+                self.assertEqual(config_manager.load_api_keys()["assistant_name"], "EDITH")
+        finally:
+            config_manager.CONFIG_FILE = old_path
+
     def test_saving_profile_does_not_erase_cloud_or_local_settings(self):
         old_path = config_manager.CONFIG_FILE
         try:
