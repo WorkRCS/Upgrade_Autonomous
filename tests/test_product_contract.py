@@ -27,7 +27,8 @@ class ProductContractTests(unittest.TestCase):
     def test_hud_uses_a_neutral_generated_visual(self):
         self.assertIn("self._face_px = None", self.ui)
         self.assertIn("def _build_assistant_icon(", self.ui)
-        self.assertIn('config" / "assistant.ico"', self.ui)
+        self.assertIn('config" / "edith.ico"', self.ui)
+        self.assertIn('svg_icon("edith-app"', self.ui)
         self.assertNotIn('config" / "jarvis.ico', self.ui)
 
     def test_gemini_model_and_actual_voice_switch_logic(self):
