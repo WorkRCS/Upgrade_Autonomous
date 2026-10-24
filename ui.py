@@ -2779,6 +2779,46 @@ class MainWindow(QMainWindow):
         # display-only). Everything else lands here as a last resort.
         return home / "Desktop"
 
+    @staticmethod
+    def _remove_verified_old_shortcuts(desktop: Path, script: Path) -> int:
+        """Remove legacy launchers only when they point at this exact EDITH main.py.
+
+        Never delete a shortcut by name alone. Unverifiable entries stay intact,
+        so unrelated applications and user-customized shortcuts are protected.
+        """
+        removed = 0
+        expected = str(script.resolve()).casefold()
+        if platform.system() == "Windows":
+            try:
+                from win32com.client import Dispatch
+                shell = Dispatch("WScript.Shell")
+            except (ImportError, OSError):
+                return 0
+            for shortcut in desktop.glob("*.lnk"):
+                if shortcut.stem.lower() == "edith":
+                    continue
+                name = shortcut.stem.casefold()
+                if not any(word in name for word in ("jarvis", "ai assistant", "mark xl")):
+                    continue
+                try:
+                    old = shell.CreateShortcut(str(shortcut))
+                    details = f"{old.TargetPath} {old.Arguments}".casefold()
+                    if expected in details:
+                        shortcut.unlink()
+                        removed += 1
+                except Exception:
+                    continue
+        elif platform.system() == "Linux":
+            for name in ("ai-assistant.desktop", "jarvis.desktop"):
+                old = desktop / name
+                try:
+                    if old.is_file() and expected in old.read_text(encoding="utf-8").casefold():
+                        old.unlink()
+                        removed += 1
+                except OSError:
+                    pass
+        return removed
+
     def _create_desktop_shortcut(self):
         """
         Create a desktop shortcut on Windows / macOS / Linux.
@@ -2793,6 +2833,7 @@ class MainWindow(QMainWindow):
         ico_path = Path(__file__).resolve().parent / "config" / "edith.ico"
         if not ico_path.exists() and not self._build_assistant_icon(ico_path):
             self._log.append_log("ERR: EDITH icon unavailable. Install Pillow and retry.")
+            return
 
         try:
             _os = platform.system()
@@ -2885,7 +2926,8 @@ class MainWindow(QMainWindow):
                 )
                 desk.chmod(desk.stat().st_mode | 0o755)
 
-            self._log.append_log("SYS: EDITH desktop shortcut created.")
+            removed = self._remove_verified_old_shortcuts(desktop, script)
+            self._log.append_log(f"SYS: EDITH desktop shortcut created; {removed} verified old shortcut(s) cleaned.")
         except Exception as e:
             self._log.append_log(f"ERR: Shortcut failed — {e}")
 
