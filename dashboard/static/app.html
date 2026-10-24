@@ -227,7 +227,6 @@
     let _heartbeatTimer = null;
     let _wsRetryMs = 1000;
     let _awaitingPong = false;
-    let _remoteState = 'sleeping';
     const _seenEventIds = new Set();
     const _eventOrder = [];
 
@@ -259,7 +258,8 @@
     }
 
     function _scheduleReconnect(immediate = false) {
-      if (_wsRetryTimer !== null || navigator.onLine === false) return;
+      // navigator.onLine may report false on an otherwise working private LAN.
+      if (_wsRetryTimer !== null) return;
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
       const delay = immediate ? 0 : _wsRetryMs;
       _wsRetryMs = Math.min(_wsRetryMs * 2, 30000);
@@ -271,8 +271,8 @@
     }
 
     function _connectRemote() {
-      if (navigator.onLine === false || !_authToken) {
-        _setLinkStatus('Offline');
+      if (!_authToken) {
+        _setLinkStatus('Pairing required');
         return;
       }
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
@@ -338,6 +338,10 @@
     });
     window.addEventListener('online', () => {
       _wsRetryMs = 1000;
+      if (_wsRetryTimer !== null) {
+        clearTimeout(_wsRetryTimer);
+        _wsRetryTimer = null;
+      }
       _scheduleReconnect(true);
     });
     document.addEventListener('visibilitychange', () => {
@@ -346,7 +350,6 @@
     _connectRemote();
 
     function setStatus(s) {
-      _remoteState = s;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (s === 'active') {
         pill.className = 'pill on'; stTxt.textContent = 'Active'; wake.classList.remove('show');
@@ -503,11 +506,6 @@
       const inp = document.getElementById('inp');
       const txt = inp.value.trim();
       if (!txt || _commandInFlight) return;
-      if (navigator.onLine === false) {
-        toast('Offline — command kept in the input');
-        return;
-      }
-
       _commandInFlight = true;
       try {
         const enc = _encrypt(txt);
