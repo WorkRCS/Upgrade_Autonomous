@@ -203,7 +203,8 @@ class AgentTaskJournal:
                     )
                     connection.execute(
                         "DELETE FROM tasks WHERE task_id IN (SELECT task_id FROM tasks "
-                        "ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?)",
+                        "WHERE status IN ('succeeded','failed','cancelled','blocked','interrupted') "
+                        "ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?)",
                         (self.retention,),
                     )
             return True
