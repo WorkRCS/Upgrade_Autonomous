@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
 from core.icons import svg_icon
 from core.window_controls import WindowControls, initial_geometry
 from core.energy_ring import draw_energy_ring, LOOP_SECONDS
+from core.dark_theme import apply_dark_theme
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -158,6 +159,7 @@ def retheme_all_widgets(old: dict[str, str], new: dict[str, str]) -> None:
     app = QApplication.instance()
     if app is None:
         return
+    apply_dark_theme(app, C)
     for w in app.allWidgets():
         try:
             ss = w.styleSheet()
@@ -369,6 +371,8 @@ class HudCanvas(QWidget):
         self._mic_level = 0.0
         self._mic_last_packet = 0.0
         self._mic_source = "PC"
+        self._out_level = 0.0
+        self._out_last = 0.0
 
         self._tick       = 0
         self._scale      = 1.0
@@ -401,6 +405,11 @@ class HudCanvas(QWidget):
         self._mic_last_packet = time.monotonic()
         self._mic_source = "PHONE" if source == "PHONE" else "PC"
 
+    def set_output_level(self, level: float) -> None:
+        self._out_level = max(0.0, min(1.0, level))
+        self._out_last = time.monotonic()
+        self.update()
+
     def clear_input_level(self) -> None:
         self._mic_target = 0.0
         self._mic_level = 0.0
@@ -432,7 +441,7 @@ class HudCanvas(QWidget):
         self._tick += 1
         now = time.monotonic()
         mic_fresh = (now - self._mic_last_packet) < 0.65
-        listening = self.state == "LISTENING" and not self.muted and not self.speaking
+        listening = self.state in {"LISTENING", "THINKING", "WORKING"} and not self.muted and not self.speaking
         drive = self._mic_target if listening and mic_fresh else 0.0
         self._mic_level += (drive - self._mic_level) * 0.36
         input_active = listening and mic_fresh and self._mic_level > 0.08
@@ -504,22 +513,31 @@ class HudCanvas(QWidget):
         painter.fillRect(self.rect(), QColor("#05030D"))
         reduced = getattr(self, "reduced_motion", False)
         phase = 0.0 if reduced else ((time.monotonic() - self._loop_started) % LOOP_SECONDS) / LOOP_SECONDS * math.tau
-        visual = QRectF(0, 0, self.width(), max(60, self.height() - 30))
+        visual = QRectF(0, 0, self.width(), max(60, self.height() - 88))
         fresh = time.monotonic() - self._mic_last_packet < .65
-        input_level = self._mic_level if fresh and self.state == "LISTENING" and not self.muted else 0.0
-        draw_energy_ring(painter, visual, phase, input_level, self.speaking, self.muted)
-        if self.muted:
-            text = "Microphone muted"
-        elif self.speaking:
-            text = "Speaking"
-        elif self.state == "LISTENING":
-            text = self._mic_source + " AUDIO DETECTED" if fresh and input_level > .11 else "WAITING FOR MIC AUDIO"
-        else:
-            text = self.state.replace("_", " ").capitalize()
-        painter.setPen(QColor("#B7B2D6"))
+        input_level = self._mic_level if fresh and not self.muted and not self.speaking else 0.0
+        output_level = self._out_level if self.speaking and time.monotonic() - self._out_last < .65 else 0.0
+        draw_energy_ring(painter, visual, phase, max(input_level, output_level), self.speaking, self.muted and not self.speaking)
+        state = self.state.upper()
+        text = state
+        if self.muted and state not in {"WORKING", "THINKING", "SPEAKING"}:
+            text = "MICROPHONE MUTED"
+        color = {"LISTENING": C.GREEN, "THINKING": C.PRI, "WORKING": C.ACC2, "SPEAKING": C.ACC}.get(state, C.TEXT)
+        painter.setPen(QColor(color))
+        painter.setFont(QFont(FONT_MAIN, 14, QFont.Weight.Bold))
+        painter.drawText(QRectF(10, self.height()-83, self.width()-20, 28), Qt.AlignmentFlag.AlignCenter, text)
+        detail = ("Voice output" if self.speaking else "Microphone muted" if self.muted else
+                  self._mic_source + " AUDIO DETECTED" if fresh and input_level > .11 else
+                  self._mic_source + " MIC READY" if fresh else "WAITING FOR MIC AUDIO")
         painter.setFont(QFont(FONT_MAIN, 9))
-        painter.drawText(QRectF(10, self.height() - 31, self.width() - 20, 22),
-                         Qt.AlignmentFlag.AlignCenter, text)
+        painter.setPen(QColor(C.TEXT))
+        painter.drawText(QRectF(10, self.height()-55, self.width()-20, 22), Qt.AlignmentFlag.AlignCenter, detail)
+        level = output_level if self.speaking else input_level
+        center = self.width()/2
+        for i in range(36):
+            height = 3 + int(level * 28 * (.3 + .7 * abs(math.sin(i*.6))))
+            painter.fillRect(QRectF(center-107+i*6, self.height()-13-height, 3, height), QColor(color if level > .02 else C.BORDER_B))
+
 
 class MetricBar(QWidget):
 
@@ -2318,6 +2336,8 @@ class MainWindow(QMainWindow):
     open_api_key_settings_signal = pyqtSignal()
     _log_sig        = pyqtSignal(str)
     _state_sig      = pyqtSignal(str)
+    _playback_sig = pyqtSignal(bool)
+    _output_level_sig = pyqtSignal(float)
     _mic_level_sig  = pyqtSignal(float, str)  # thread-safe captured PCM activity
     _content_sig    = pyqtSignal(str, str)   # (title, text) — thread-safe content display
     _reconfig_sig   = pyqtSignal()           # trigger setup overlay from any thread
@@ -2332,6 +2352,10 @@ class MainWindow(QMainWindow):
 
     def __init__(self, face_path: str):
         super().__init__()
+        apply_dark_theme(QApplication.instance(), C)
+        self._requested_state = "INITIALISING"
+        self._playback_active = False
+        self._running_tasks = 0
         QApplication.instance().edith_window = self
         self._url_prompt_sig.connect(self._show_url_prompt)
         self._confirmation_busy = False
@@ -2505,6 +2529,8 @@ class MainWindow(QMainWindow):
 
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
+        self._playback_sig.connect(self._on_playback_state)
+        self._output_level_sig.connect(self.hud.set_output_level)
         self._mic_level_sig.connect(self._on_mic_level)
         self._content_sig.connect(self._show_content)
         self._reconfig_sig.connect(self._show_setup)
@@ -3193,6 +3219,8 @@ class MainWindow(QMainWindow):
 
         return w
     def _update_task_status(self, running: int, queued: int, completed: int) -> None:
+        self._running_tasks = max(0, running)
+        self._render_activity_state()
         self._task_status_lbl.setText(f"TASKS  {running} RUN  ·  {queued} WAIT")
         self._task_status_lbl.setToolTip(
             f"Running: {running} | Queued: {queued} | Completed: {completed}"
@@ -3896,6 +3924,9 @@ class MainWindow(QMainWindow):
             return l
 
         lay.addWidget(_fl("[F4] Mute  ·  [F11] Fullscreen"))
+        self._activity_lbl = _fl("INITIALISING", C.TEXT)
+        self._activity_lbl.setAccessibleName("EDITH activity status")
+        lay.addWidget(self._activity_lbl)
         lay.addStretch()
         # Compact always-visible microphone signal, even while camera replaces HUD.
         self._mic_footer_bar = QProgressBar()
@@ -4348,7 +4379,7 @@ class MainWindow(QMainWindow):
         self._log.append_log(f"You: {txt}")
 
     def _on_mic_level(self, level: float, source: str) -> None:
-        if not self._muted and self.hud.state == "LISTENING":
+        if not self._muted and not self.hud.speaking:
             self.hud.set_input_level(level, source)
 
     def _refresh_mic_status(self) -> None:
@@ -4357,7 +4388,7 @@ class MainWindow(QMainWindow):
             label, color, level = "MIC  MUTED", C.MUTED_C, 0.0
         elif self.hud.speaking:
             label, color, level = "EDITH  SPEAKING", C.ACC, 0.0
-        elif self.hud.state == "LISTENING":
+        elif self.hud.state in {"LISTENING", "THINKING", "WORKING"}:
             fresh = time.monotonic() - self.hud._mic_last_packet < 0.65
             if fresh:
                 level = self.hud._mic_level
@@ -4378,10 +4409,26 @@ class MainWindow(QMainWindow):
             self._mic_footer_bar.setValue(value)
 
     def _apply_state(self, state: str):
+        self._requested_state = state.upper()
+        self._render_activity_state()
+
+    def _on_playback_state(self, active: bool):
+        self._playback_active = active
+        if not active and self._requested_state == "SPEAKING":
+            self._requested_state = "LISTENING"
+        self._render_activity_state()
+
+    def _render_activity_state(self):
+        state = "SPEAKING" if self._playback_active else self._requested_state
+        if self._running_tasks and state != "SPEAKING":
+            state = "WORKING"
         self.hud.state = state
         self.hud.speaking = (state == "SPEAKING")
-        if state != "LISTENING":
+        if self.hud.speaking or state in {"SLEEPING", "MUTED"}:
             self.hud.clear_input_level()
+        if hasattr(self, '_activity_lbl'):
+            self._activity_lbl.setText(state)
+        self.hud.update()
 
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
@@ -4532,6 +4579,12 @@ class EdithUI:
     def show_input_level(self, level: float, source: str = "PC") -> None:
         """Display captured input intensity; safe to call from audio threads."""
         self._emit_if_open("_mic_level_sig", level, source)
+
+    def show_playback_state(self, active: bool) -> None:
+        self._emit_if_open("_playback_sig", active)
+
+    def show_output_level(self, level: float) -> None:
+        self._emit_if_open("_output_level_sig", level)
 
     def write_log(self, text: str):
         self._emit_if_open("_log_sig", text)

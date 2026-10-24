@@ -148,3 +148,68 @@ class WorkspaceTests(unittest.TestCase):
         self.window._escape_action()
         self.assertFalse(panel.isVisible())
         self.assertEqual({k:v.lower() for k,v in original.items()}, self.ui.current_palette())
+
+    def test_thinking_working_speaking_priority_tracks_real_tasks(self):
+        w = self.window
+        w._apply_state('THINKING')
+        self.assertEqual(w.hud.state, 'THINKING')
+        self.assertEqual(w._activity_lbl.text(), 'THINKING')
+        w._update_task_status(2, 1, 0)
+        self.assertEqual(w.hud.state, 'WORKING')
+        w._apply_state('LISTENING')
+        self.assertEqual(w.hud.state, 'WORKING', 'another callback must not hide running work')
+        w._apply_state('SPEAKING')
+        self.assertTrue(w.hud.speaking)
+        self.assertEqual(w._activity_lbl.text(), 'SPEAKING')
+        w._apply_state('LISTENING')
+        self.assertEqual(w.hud.state, 'WORKING')
+        w._update_task_status(0, 0, 3)
+        self.assertEqual(w.hud.state, 'LISTENING')
+
+    def test_microphone_animation_updates_while_waiting_for_model(self):
+        w = self.window
+        w._apply_state('THINKING')
+        w._on_mic_level(.8, 'PHONE')
+        w.hud._step()
+        self.assertGreater(w.hud._mic_level, 0)
+        self.assertEqual(w.hud._mic_source, 'PHONE')
+        self.assertEqual(w.hud.state, 'THINKING')
+        w._apply_state('SPEAKING')
+        w._output_level_sig.emit(.7)
+        self.app.processEvents()
+        self.assertAlmostEqual(w.hud._out_level, .7)
+        self.assertEqual(w.hud._mic_level, 0)
+        w._apply_state('LISTENING')
+        w._toggle_mute()
+        w._on_mic_level(.9, 'PC')
+        self.assertEqual(w.hud._mic_level, 0)
+
+    def test_standard_right_click_menu_has_light_text_and_dark_surface(self):
+        from PyQt6.QtGui import QPalette, QColor
+        w = self.window
+        w._input.setText('Select and copy')
+        w._input.selectAll()
+        menu = w._input.createStandardContextMenu()
+        menu.popup(w._input.mapToGlobal(w._input.rect().topLeft()))
+        self.app.processEvents()
+        try:
+            palette = menu.palette()
+            self.assertEqual(palette.color(QPalette.ColorRole.Text), QColor(self.ui.C.TEXT))
+            self.assertEqual(palette.color(QPalette.ColorRole.Window), QColor(self.ui.C.PANEL))
+            self.assertGreater(palette.color(QPalette.ColorRole.Text).lightness(), 200)
+            self.assertLess(palette.color(QPalette.ColorRole.Window).lightness(), 70)
+            self.assertIn('QMenu::item:selected', menu.styleSheet())
+            self.assertIn(self.ui.C.TEXT, menu.styleSheet())
+        finally:
+            menu.close()
+            menu.deleteLater()
+
+    def test_actual_playback_cannot_be_hidden_by_tool_listening_callback(self):
+        w = self.window
+        w._on_playback_state(True)
+        w._apply_state('LISTENING')
+        self.assertEqual(w.hud.state, 'SPEAKING')
+        w._update_task_status(1, 0, 0)
+        self.assertEqual(w.hud.state, 'SPEAKING')
+        w._on_playback_state(False)
+        self.assertEqual(w.hud.state, 'WORKING')

@@ -22,6 +22,21 @@ not imply that the creator trained the underlying provider model.
 See [docs/UPGRADE_STATUS.md](docs/UPGRADE_STATUS.md) for runtime work still pending.
 Real provider, microphone, camera and OS workflows require target-device validation.
 
+## Voice activity and popup contrast fixes
+
+The centered ring again exposes prominent LISTENING, THINKING, WORKING and SPEAKING
+labels, a real captured-input waveform and a real PCM-output waveform. A persistent
+footer status remains visible while the camera replaces the canvas. Thinking begins
+when a text/voice request is processed; running scheduler tasks keep Working visible,
+and actual audio playback takes priority over intermediate tool callbacks.
+
+Qt editing context menus, selected items and tooltips use an explicit dark application
+palette with light text. Disabled menu items use a readable muted color. This includes
+the standard right-click menu in the command input and activity/result text fields.
+
+The tests use simulated session events and audio buffers; live provider and actual
+microphone/speaker validation remains a target-device test.
+
 ## Features
 
 - Real-time voice conversation using Gemini Live API

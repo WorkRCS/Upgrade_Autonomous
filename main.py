@@ -664,6 +664,7 @@ class EdithLive:
         self.out_queue            = None
         self._pending_text_started_at: float | None = None
         self._loop                = None
+        self._response_pending    = False
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
@@ -906,6 +907,8 @@ class EdithLive:
         if not self._loop or not self._loop.is_running() or not self.session:
             self.ui.write_log("NET: Gemini Live is not connected; command kept for retry.")
             return False
+        self._response_pending = True
+        self.ui.set_state("THINKING")
         self._pending_text_started_at = time.perf_counter()
         try:
             future = asyncio.run_coroutine_threadsafe(
@@ -916,6 +919,8 @@ class EdithLive:
                 self._loop,
             )
         except RuntimeError as exc:
+            self._response_pending = False
+            self.ui.set_state("LISTENING")
             self._pending_text_started_at = None
             self.ui.write_log(
                 f"ERR: Could not queue Gemini Live text ({type(exc).__name__})."
@@ -926,6 +931,8 @@ class EdithLive:
             try:
                 result.result()
             except Exception as exc:
+                self._response_pending = False
+                self.ui.set_state("LISTENING")
                 self._pending_text_started_at = None
                 self.ui.write_log(
                     f"ERR: Could not send text to Gemini Live ({type(exc).__name__})."
@@ -939,14 +946,18 @@ class EdithLive:
     def set_speaking(self, value: bool):
         with self._speaking_lock:
             self._is_speaking = value
+        publish = getattr(self.ui, "show_playback_state", None)
+        if publish:
+            publish(value)
         if value:
             self.ui.set_state("SPEAKING")
         elif not self.ui.muted:
-            self.ui.set_state("LISTENING")
+            self.ui.set_state("THINKING" if getattr(self, "_response_pending", False) else "LISTENING")
 
     def interrupt(self) -> None:
         """Stop EDITH mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
+        self._response_pending = False
         q = self.audio_in_queue
         if q:
             drained = 0
@@ -1131,7 +1142,7 @@ class EdithLive:
 
         activity_label = describe_tool_activity(name, args)
         print(f"[Assistant] 🔧 {name} — {activity_label}")
-        self.ui.set_state("THINKING")
+        self.ui.set_state("WORKING")
         self.ui.write_log(f"ACTIVITY ▶ {activity_label}")
 
         # A model-provided "confirmed" field never grants approval. The user must
@@ -1566,12 +1577,18 @@ class EdithLive:
                                 out_buf.append(txt)
 
                         if sc.input_transcription and sc.input_transcription.text:
+                            self._response_pending = True
+                            if not self._is_speaking:
+                                self.ui.set_state("THINKING")
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
                                 in_buf.append(txt)
                                 self._last_user_speech = time.monotonic()
 
                         if sc.turn_complete:
+                            self._response_pending = False
+                            if not self._is_speaking and self.audio_in_queue.empty():
+                                self.ui.set_state("LISTENING")
                             if self._turn_done_event:
                                 self._turn_done_event.set()
 
@@ -1614,6 +1631,8 @@ class EdithLive:
                                 self._pending_vision = None
                                 b64 = _b64.b64encode(img_b).decode("ascii")
                                 print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle}) → main session")
+                                self._response_pending = True
+                                self.ui.set_state("THINKING")
                                 await self.session.send_client_content(
                                     turns={"parts": [
                                         {"inline_data": {"mime_type": mime_t, "data": b64}},
@@ -1642,6 +1661,9 @@ class EdithLive:
                         fn_responses = await self._execute_tool_batch(
                             response.tool_call.function_calls
                         )
+                        self._response_pending = True
+                        if not self._is_speaking:
+                            self.ui.set_state("THINKING")
                         await self.session.send_tool_response(
                             function_responses=fn_responses
                         )
@@ -1706,6 +1728,7 @@ class EdithLive:
                             batch.extend(self.audio_in_queue.get_nowait())
                         except asyncio.QueueEmpty:
                             break
+                    self.ui.show_output_level(pcm16_level(bytes(batch)))
                     await asyncio.to_thread(stream.write, bytes(batch))
             except asyncio.CancelledError:
                 raise
@@ -2032,6 +2055,8 @@ class EdithLive:
                         break
                     await asyncio.sleep(0.1)
                 if self.session:
+                    self._response_pending = True
+                    self.ui.set_state("THINKING")
                     await self.session.send_client_content(
                         turns={"parts": [{"text": text}]},
                         turn_complete=True,
@@ -2046,6 +2071,9 @@ class EdithLive:
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
+                self._response_pending = False
+                if not self._is_speaking:
+                    self.ui.set_state("LISTENING")
                 print(f"[Dashboard] Command error: {e}")
                 await asyncio.sleep(0.5)
 
@@ -2187,6 +2215,7 @@ class EdithLive:
                 # Invalid API key — stop hammering the API, prompt re-configuration
                 if "API key not valid" in err_str or "1007" in err_str:
                     self.ui.write_log("ERR: Gemini rejected the saved API key. Test and save a replacement in Settings.")
+                    self._response_pending = False
                     self.ui.set_state("SLEEPING")
                     if self._api_key_update_event:
                         self._api_key_update_event.clear()
@@ -2219,6 +2248,7 @@ class EdithLive:
                     asyncio.create_task(self._save_session_summary())
 
             self.set_speaking(False)
+            self._response_pending = False
             self.ui.set_state("SLEEPING")
 
             if self._dashboard:

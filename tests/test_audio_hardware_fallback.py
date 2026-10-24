@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from core.hardware_check import audio_compatibility, desktop_compatibility, report
+from core.audio_meter import pcm16_level
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,6 +86,7 @@ def _audio_method(name: str, fake_sound: object):
         "RECEIVE_SAMPLE_RATE": 24000,
         "CHANNELS": 1,
         "CHUNK_SIZE": 1024,
+        "pcm16_level": pcm16_level,
     }
     exec(compile(module, str(ROOT / "main.py"), "exec"), scope)
     return scope[name]
@@ -133,6 +135,31 @@ class AudioHardwareRecoveryTests(unittest.IsolatedAsyncioTestCase):
             "_play_audio", SimpleNamespace(RawOutputStream=self._failing_stream)
         )
 
+    async def test_real_playback_batch_publishes_pcm_level_before_write(self):
+        import struct
+        written, levels, speaking = [], [], []
+        class Stream:
+            def start(self): pass
+            def stop(self): pass
+            def close(self): pass
+            def write(self, data):
+                written.append(data)
+                raise asyncio.CancelledError()
+        chunk = struct.pack('<h', 6000) * 1200
+        queue = asyncio.Queue()
+        queue.put_nowait(chunk)
+        obj = SimpleNamespace(audio_in_queue=queue, _turn_done_event=asyncio.Event(),
+            set_speaking=speaking.append,
+            ui=SimpleNamespace(show_output_level=levels.append, write_log=lambda line: None))
+        call = _audio_method('_play_audio', SimpleNamespace(RawOutputStream=lambda **kwargs: Stream()))
+        with self.assertRaises(asyncio.CancelledError):
+            await call(obj)
+        self.assertEqual(written, [chunk])
+        self.assertEqual(levels, [pcm16_level(chunk)])
+        self.assertGreater(levels[0], 0)
+        self.assertEqual(speaking, [True, False])
+
 
 if __name__ == "__main__":
     unittest.main()
+
