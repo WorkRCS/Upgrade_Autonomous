@@ -378,3 +378,74 @@ The Phase 4 automated suite and Qt offscreen smoke tests must pass, and the
 user must verify the visual layout and usability on their own Windows PC
 before declaring Phase 4 **100% complete**. Do **not** begin Phase 5 before
 that explicit approval.
+
+
+## Phase 5 — Cross-device and network acceptance checks
+
+This phase keeps the original EDITH desktop and mobile UI, the existing
+Gemini Live session, and the already configured local LLM. It does not add a
+public-internet relay, replace the authentication/encryption protocol, or
+create a new branch.
+
+### Automated tests
+
+Run in your active project environment:
+
+```powershell
+python -m compileall -q main.py ui.py setup.py actions core dashboard memory plugins tests config tools
+python -m unittest discover -s tests -v
+python tests/check_inline_js.py
+```
+
+The GitHub Actions workflow also runs Phase 5 HTTP/WebSocket tests with
+FastAPI and its TestClient installed. Tests check authorized session probes,
+WebSocket heartbeat ping/pong, stable replay IDs, and refusal to queue remote
+commands while Gemini Live is disconnected. Passing CI does not prove that
+your phone and Windows networking function together.
+
+### Windows PC and phone testing (trusted LAN only)
+
+1. Update `ui/edith-interface`, activate the same Python environment used
+   in Phase 1, and start EDITH. Do not modify `config/api_keys.json` or
+   re-enter previously saved credentials just to test this phase.
+2. Connect the phone to the PC's **trusted local Wi-Fi/LAN**, open Remote
+   Control, pair with the existing code/QR flow and confirm the remote page
+   still looks familiar and reports a truthful connection status. Do not port
+   forward EDITH or expose its dashboard to public internet.
+3. Send a harmless text query. Confirm it appears in the phone chat only
+   after an accepted HTTP response and produces a real result on the desktop.
+   Verify API settings and local-agent settings remain untouched.
+4. Briefly disconnect the phone from Wi-Fi, reconnect to the same network,
+   and observe the phone page **without manually refreshing**. It should
+   report lost/reconnecting state, then recover automatically. Verify old
+   received messages and file cards are **not duplicated** after replay.
+5. Try a harmless command while disconnected. The draft must not disappear
+   or be silently resent later. After reconnect, inspect EDITH first to
+   ensure it did not run; if delivery was unconfirmed, manually decide
+   whether resending is safe. Never use a destructive command for this test.
+6. Check browser pairing after a temporary network outage. It must remain
+   saved; an explicit invalid/expired pairing code can still ask for a new
+   code. A full EDITH server restart can invalidate in-memory pairing and
+   legitimately require a new QR login.
+7. Test remote phone audio with a short, harmless request. If network
+   throttling is available in your test tools, try a slow connection:
+   audio must not build a long delayed backlog. Some words may be dropped
+   during severe congestion—note these as limitations rather than success.
+   Check that the phone microphone releases after disconnecting.
+8. Upload a disposable non-sensitive file from the phone. Verify successful
+   upload on the PC. With the network interrupted, verify an upload failure
+   shows an error rather than claiming success; retry manually only.
+9. Keep the phone page open and trigger many harmless log updates. The page
+   should remain responsive on the device. The UI still shows the original
+   EDITH theme and supports narrow phone screens.
+10. Repeat separate **TEST KEY** for Gemini Live and **TEST LOCAL LLM**.
+    Neither the cloud API key nor `llm_provider`, `llm_url` and `llm_model`
+    should have been overwritten by this phase.
+
+### Phase 5 completion gate
+
+Mark each relevant test **PASS**, **FAIL** or **NOT TESTED**. Complete
+Phase 5 only when GitHub CI is green **and** you confirm the real Windows
+and phone checks. Do not start Phase 6 before this approval. A private VPN
+can make a trusted remote path reachable from elsewhere, but arbitrary
+internet access is not guaranteed or implicitly enabled.
