@@ -1,0 +1,141 @@
+"""Phase 1: startup, EDITH naming and lossless upgrade contracts."""
+import tempfile
+import unittest
+from pathlib import Path
+
+from core.branding import prepare_uploads_dir
+from core.icons import icon_names, svg_markup
+from core.startup_check import (
+    format_install_help, missing_startup_dependencies,
+)
+from memory import config_manager
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class BrandingAndStartupTests(unittest.TestCase):
+    def test_old_upload_directory_migrates_with_contents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            dl = home / "Downloads"
+            old = dl / "JARVIS Uploads"
+            old.mkdir(parents=True)
+            (old / "notes.txt").write_text("keep me", encoding="utf-8")
+            target = prepare_uploads_dir(home=home, base_dir=Path(tmp))
+            self.assertEqual(target, dl / "EDITH Uploads")
+            self.assertEqual((target / "notes.txt").read_text(), "keep me")
+            self.assertFalse(old.exists())
+
+    def test_collisions_do_not_overwrite_old_or_new_uploads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            dl = home / "Downloads"
+            old, new = dl / "JARVIS Uploads", dl / "EDITH Uploads"
+            old.mkdir(parents=True)
+            new.mkdir()
+            (old / "report.pdf").write_text("old", encoding="utf-8")
+            (new / "report.pdf").write_text("new", encoding="utf-8")
+            path = prepare_uploads_dir(home=home, base_dir=Path(tmp))
+            self.assertEqual(path, new)
+            self.assertEqual((new / "report.pdf").read_text(), "new")
+            self.assertEqual((new / "report_migrated_1.pdf").read_text(), "old")
+            self.assertFalse(old.exists())
+
+    def test_symlink_is_not_migrated_or_followed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            dl = home / "Downloads"
+            old = dl / "JARVIS Uploads"
+            old.mkdir(parents=True)
+            outside = Path(tmp) / "outside.txt"
+            outside.write_text("outside", encoding="utf-8")
+            try:
+                (old / "linked.txt").symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            path = prepare_uploads_dir(home=home, base_dir=Path(tmp))
+            self.assertEqual(outside.read_text(), "outside")
+            self.assertFalse((path / "linked.txt").exists())
+
+    def test_neutral_upload_fallback_when_user_folders_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "repo"
+            path = prepare_uploads_dir(home=Path(tmp) / "empty", base_dir=base)
+            self.assertEqual(path, base / "uploads")
+            self.assertTrue(path.is_dir())
+
+    def test_missing_dependencies_provide_exact_install_command(self):
+        missing = missing_startup_dependencies(
+            lambda name: None if name == "sounddevice" else object()
+        )
+        self.assertEqual(missing, [("sounddevice", "sounddevice")])
+        msg = format_install_help(missing)
+        self.assertIn("python -m pip install -r requirements.txt", msg)
+        self.assertIn("python main.py", msg)
+        self.assertIn("local-LLM settings are not modified", msg)
+
+    def test_missing_parent_module_is_handled(self):
+        def checker(name):
+            if name == "google.genai":
+                raise ModuleNotFoundError("No module named 'google'")
+            return object()
+        self.assertEqual(
+            missing_startup_dependencies(checker),
+            [("google.genai", "google-genai>=2.8.0")],
+        )
+
+    def test_fixed_icon_is_part_of_the_local_svg_set(self):
+        self.assertIn("edith-app", icon_names())
+        svg = svg_markup("edith-app")
+        self.assertIn("<svg", svg)
+        self.assertIn("M16.5 6.5", svg)
+
+    def test_launcher_and_autostart_new_names_are_edith(self):
+        ui = (ROOT / "ui.py").read_text(encoding="utf-8")
+        for snippet in (
+            'desktop / "EDITH.lnk"', 'desktop / "EDITH.app"',
+            'desktop / "edith.desktop"', 'desk_dir / "edith.desktop"',
+            'winreg.SetValueEx(\n                            reg, "EDITH"',
+            'config" / "edith.ico"', 'svg_icon("edith-app"',
+        ):
+            self.assertIn(snippet, ui)
+        for forbidden in (
+            'desktop / "AI Assistant.lnk"',
+            'desktop / "AI Assistant.app"',
+            'desk = desktop / "ai-assistant.desktop"',
+            'winreg.SetValueEx(reg, "JARVIS_AI"',
+        ):
+            self.assertNotIn(forbidden, ui)
+
+    def test_early_preflight_and_lazy_upload_creation(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        dash = (ROOT / "dashboard" / "server.py").read_text(encoding="utf-8")
+        self.assertLess(main.index("check_startup_dependencies()"), main.index("import sounddevice as sd"))
+        self.assertIn("self._uploads_dir                 = _make_uploads_dir()", dash)
+        self.assertNotIn("UPLOADS_DIR = _make_uploads_dir()", dash)
+        self.assertIn("def _certificate_paths()", dash)
+
+    def test_saving_profile_does_not_erase_cloud_or_local_settings(self):
+        old_path = config_manager.CONFIG_FILE
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                config_manager.CONFIG_FILE = Path(tmp) / "api_keys.json"
+                config_manager.CONFIG_FILE.write_text(
+                    '{"gemini_api_key":"secret","llm_provider":"openai",'
+                    '"llm_url":"http://127.0.0.1:1234","llm_model":"local-model"}',
+                    encoding="utf-8",
+                )
+                config_manager.save_assistant_config("anything", "Tester")
+                data = config_manager.load_api_keys()
+                self.assertEqual(data["assistant_name"], "EDITH")
+                self.assertEqual(data["gemini_api_key"], "secret")
+                self.assertEqual(data["llm_provider"], "openai")
+                self.assertEqual(data["llm_url"], "http://127.0.0.1:1234")
+                self.assertEqual(data["llm_model"], "local-model")
+        finally:
+            config_manager.CONFIG_FILE = old_path
+
+
+if __name__ == "__main__":
+    unittest.main()
