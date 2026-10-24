@@ -4031,7 +4031,14 @@ class MainWindow(QMainWindow):
         self._input.clear()
         self._log.append_log(f"You: {txt}")
         if self.on_text_command:
-            threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
+            # The Live handler only schedules an asyncio coroutine thread-safely.
+            # Avoid spawning a new OS thread for every text message.
+            try:
+                self.on_text_command(txt)
+            except Exception as exc:
+                self._log.append_log(
+                    f"ERR: Could not queue text request ({type(exc).__name__})."
+                )
 
     def _apply_state(self, state: str):
         self.hud.state    = state
