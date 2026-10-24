@@ -110,6 +110,33 @@ This foundation does not guarantee that every workflow in every third-party appl
 
 Actual response time depends on network conditions, API availability, the requested action, and the local system. Long-running actions such as web searches, downloads, or application startup cannot be guaranteed to finish within a fixed number of seconds.
 
+## Phase 4 — Refinements to the existing EDITH desktop UI
+
+The original EDITH HUD, layout, colors, chat/voice interaction, optional remote
+dashboard, and cloud/local model configuration are retained—not replaced with
+a new concept interface.
+
+- **Task details:** expand the chevron beside TASKS to see up to four running,
+  queued, or recently completed scheduler actions with real outcome labels.
+  This is metadata only: tool arguments, outputs and API credentials are not
+  sent to the task view. CANCEL WAITING still affects *queued tasks only*.
+- **Faster Activity Log:** text is painted in bounded chunks instead of
+  character-by-character; rendered history is bounded to protect long sessions.
+  Controls → **REDUCED LOG ANIMATION** toggles near-immediate log updates.
+  This display preference is stored separately using EDITH Qt settings; it
+  does not change `config/api_keys.json`.
+- **Keyboard and layout:** **Ctrl+K** focuses/selects the command field.
+  Side panels adapt to narrower windows while retaining the same HUD and
+  native desktop window.
+- **Safer text entry:** when Gemini Live is offline before sending, typed
+  commands are left in the input box. If asynchronous sending fails, the
+  command is restored only when the input is still empty, preserving any
+  newer draft.
+
+GitHub CI exercises an offscreen Qt smoke test. A real Windows display,
+microphone and dual-provider test remain required: see
+[Phase 4 in TESTING.md](TESTING.md).
+
 ## Full end-to-end testing
 
 Use [TESTING.md](TESTING.md) for the complete local validation sequence, including automated checks, Gemini/voice/UI smoke tests, app discovery, YouTube channel search, Activity Log privacy, and safe confirmation-dialog tests using disposable files and harmless apps. Machine-level GUI behavior still needs to be verified on the target OS.
