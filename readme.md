@@ -83,7 +83,8 @@ cd Upgrade_Autonomous
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m core.startup_check
 python main.py
 ```
 
@@ -100,11 +101,38 @@ On macOS or Linux, create and activate the environment with:
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+python -m core.startup_check
 python main.py
 ```
 
 If `py -3.11` is unavailable on Windows, install Python 3.11 through the Windows Python Install Manager or the official Python installer. Verify with `py -3.11 --version` before creating the environment.
+
+## EDITH identity and compatibility (Phase 1)
+
+EDITH keeps the existing native UI; there is no replacement dashboard design.
+Use **CREATE DESKTOP SHORTCUT** in Controls to create `EDITH.lnk` on Windows,
+`EDITH.app` on macOS, or `edith.desktop` on Linux. The app uses a dedicated
+EDITH E-monogram icon in its window and desktop launcher.
+
+Uploads are stored in **EDITH Uploads**. Existing files from the former
+downloads folder are moved only with collision protection. Browser profiles
+and generated projects migrate to EDITH-named directories when safe.
+Never delete an old folder until its files and account sessions have been verified.
+Old scheduled reminders can retain their original filesystem path to continue
+firing; new reminders are EDITH-branded.
+
+The cloud Gemini Live voice system and the configured local LLM remain separate
+and intact. Phase 1 does **not** replace Ollama / LM Studio / OpenAI-compatible
+local backends or overwrite `llm_provider`, `llm_url`, or `llm_model`.
+The existing remote encryption/connection protocol retains its compatibility
+keys internally; those are **not** application or shortcut names.
+
+If EDITH reports missing packages such as `sounddevice`, run
+`python -m pip install -r requirements.txt` with the **same Python** used to
+start the app, then `python -m core.startup_check`.
+Review the Phase 1 Windows checklist in [TESTING.md](TESTING.md) before
+authorizing the start of Phase 2.
 
 ## Initial configuration
 
