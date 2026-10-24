@@ -55,6 +55,14 @@ class TaskResult:
     attempts: int = 0
 
 
+class TaskReportedFailure(Exception):
+    """A tool returned an unsuccessful result that should block dependents."""
+
+    def __init__(self, response: Any):
+        super().__init__("Tool reported an unsuccessful or cancelled operation")
+        self.response = response
+
+
 class TaskScheduler:
     """Run task batches with dependency, priority and cancellation tracking.
 
@@ -106,6 +114,9 @@ class TaskScheduler:
         return cancelled
 
     async def _execute(self, spec: TaskSpec) -> TaskResult:
+        # A queued-cancel click can land between task creation and first run.
+        if self._states[spec.task_id]["status"] == "cancelled":
+            return TaskResult(spec.task_id, "cancelled")
         attempts = 0
         self._update(spec.task_id, "running")
         while True:
@@ -130,6 +141,7 @@ class TaskScheduler:
                 self._update(spec.task_id, "failed")
                 return TaskResult(
                     spec.task_id, "failed",
+                    value=exc.response if isinstance(exc, TaskReportedFailure) else None,
                     error=f"{type(exc).__name__}: {exc}",
                     attempts=attempts,
                 )
