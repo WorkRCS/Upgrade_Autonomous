@@ -34,6 +34,7 @@ import re
 import threading
 import time
 import json
+import secrets
 import sys
 import traceback
 from datetime import datetime
@@ -81,6 +82,10 @@ from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
 from core.task_view           import compact_task_view
+from core.agent_reliability import (
+    ActionDeduplicator, ActionEvidence, AgentTaskJournal,
+    assess_action_evidence, format_task_history,
+)
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -515,6 +520,15 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "task_history",
+        "description": (
+            "Show a short privacy-safe history of recent EDITH task outcomes, "
+            "including interrupted or unverified actions. Read-only; never "
+            "reveals commands, file paths, messages or credentials."
+        ),
+        "parameters": {"type": "OBJECT", "properties": {}},
+    },
+    {
         "name": "shutdown_edith",
         "description": (
             "Shuts down the assistant completely. "
@@ -666,6 +680,10 @@ class EdithLive:
             max_concurrency=4, on_update=self._notify_task_status
         )
         self._task_batch_sequence = 0
+        self._agent_run_id = secrets.token_hex(6)
+        self._action_deduplicator = ActionDeduplicator()
+        self._agent_journal = AgentTaskJournal()
+        self._task_evidence: dict[str, tuple[ActionEvidence, int]] = {}
         self.ui._win.on_cancel_queued_tasks = self._cancel_pending_tasks
         self._turn_done_event: asyncio.Event | None = None
         self._dashboard     = None
@@ -749,13 +767,43 @@ class EdithLive:
 
         loop.call_soon_threadsafe(_cancel)
 
-    async def _run_checked_tool(self, fc) -> types.FunctionResponse:
-        """Preserve real tool errors/cancellations, blocking dependent actions."""
+    async def _run_checked_tool(self, fc, task_id: str) -> types.FunctionResponse:
+        """Deduplicate side effects and attach honest, privacy-safe evidence."""
+        self._agent_journal.started(task_id)
+        started = time.perf_counter()
+        arguments = dict(fc.args or {})
+        if not parallel_read_only(fc.name, arguments):
+            claim = self._action_deduplicator.reserve(fc.id, fc.name, arguments)
+            if claim in {"duplicate", "conflict"}:
+                note = (
+                    "Repeated tool-call ID suppressed; nothing executed again. "
+                    "Verify the earlier action with a separate read-only check."
+                    if claim == "duplicate" else
+                    "Conflicting tool-call ID suppressed; nothing executed. "
+                    "Request a new action after checking the current state."
+                )
+                evidence = ActionEvidence("unverified", "not_verified", True)
+                elapsed = int((time.perf_counter() - started) * 1000)
+                self._task_evidence[task_id] = (evidence, elapsed)
+                response = types.FunctionResponse(
+                    id=fc.id, name=fc.name,
+                    response={"result": note, "execution_verification": evidence.response_metadata()},
+                )
+                raise TaskReportedFailure(response)
+
         response = await self._execute_tool(fc)
-        result = str(response.response.get("result", "") or "")
-        if activity_outcome(result) != "ok" or result.lower().startswith("cancelled"):
-            raise TaskReportedFailure(response)
-        return response
+        evidence = assess_action_evidence(
+            fc.name, arguments, response.response.get("result", "")
+        )
+        elapsed = int((time.perf_counter() - started) * 1000)
+        self._task_evidence[task_id] = (evidence, elapsed)
+        annotated = types.FunctionResponse(
+            id=fc.id, name=fc.name,
+            response={**response.response, "execution_verification": evidence.response_metadata()},
+        )
+        if evidence.blocks_dependents:
+            raise TaskReportedFailure(annotated)
+        return annotated
 
     async def _execute_tool_batch(self, calls) -> list[types.FunctionResponse]:
         """Parallelize independent read-only calls while preserving action order.
@@ -773,7 +821,7 @@ class EdithLive:
         current_reads: list[str] = []
         parallel_count = 0
         for index, fc in enumerate(calls):
-            task_id = f"{batch}-{index + 1}"
+            task_id = f"{self._agent_run_id}-{batch}-{index + 1}"
             safe = parallel_read_only(fc.name, dict(fc.args or {}))
             if safe:
                 dependencies = barrier
@@ -786,7 +834,7 @@ class EdithLive:
             specs.append(TaskSpec(
                 task_id=task_id,
                 label=describe_tool_activity(fc.name, dict(fc.args or {})),
-                run=lambda call=fc: self._run_checked_tool(call),
+                run=lambda call=fc, tid=task_id: self._run_checked_tool(call, tid),
                 priority=0 if fc.name == "system_status" else 10,
                 depends_on=dependencies,
                 exclusive=not safe,
@@ -796,9 +844,21 @@ class EdithLive:
             f"TASKS: {len(specs)} action(s) queued; "
             f"{parallel_count} read-only action(s) eligible for concurrency (max 4)."
         )
+        self._agent_journal.plan([(spec.task_id, calls[i].name) for i, spec in enumerate(specs)])
         outcomes = await self._task_scheduler.run_batch(specs)
         responses = []
         for fc, outcome in zip(calls, outcomes):
+            evidence, duration_ms = self._task_evidence.pop(
+                outcome.task_id, (None, None)
+            )
+            verification = evidence.verification if evidence else "not_verified"
+            self._agent_journal.finished(
+                outcome.task_id, outcome.status, verification, duration_ms
+            )
+            if evidence and evidence.verification == "follow_up_required":
+                self.ui.write_log(
+                    f"TASKS: {fc.name} reported a result; independent verification still required."
+                )
             if outcome.status == "succeeded":
                 responses.append(outcome.value)
             elif outcome.value is not None:
@@ -1311,6 +1371,9 @@ class EdithLive:
             elif name == "flight_finder":
                 r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
                 result = r or "Done."
+
+            elif name == "task_history":
+                result = format_task_history(self._agent_journal.recent(limit=10))
 
             elif name == "system_status":
                 r = await loop.run_in_executor(None, get_system_status)
