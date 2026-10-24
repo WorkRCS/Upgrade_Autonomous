@@ -218,23 +218,136 @@
     const stTxt = document.getElementById('st');
     const wake  = document.getElementById('wake');
 
+    // Reconnect without reloading the page. Never replay commands automatically:
+    // a lost HTTP acknowledgement does NOT prove that a command was not executed.
     const _wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const _wsUrl   = `${_wsProto}://${location.host}/ws?token=${encodeURIComponent(_authToken)}`;
-    const ws       = new WebSocket(_wsUrl);
+    const _wsUrl = _wsProto + '://' + location.host + '/ws?token=' + encodeURIComponent(_authToken);
+    let ws = null;
+    let _wsRetryTimer = null;
+    let _heartbeatTimer = null;
+    let _wsRetryMs = 1000;
+    let _awaitingPong = false;
+    let _remoteState = 'sleeping';
+    const _seenEventIds = new Set();
+    const _eventOrder = [];
 
-    ws.onopen    = () => { sys('Remote session active.'); toast('Connected'); };
-    ws.onclose   = () => sys('Connection lost — refresh to reconnect.');
-    ws.onerror   = () => sys('Connection error.');
-    ws.onmessage = (e) => {
-      const m = JSON.parse(e.data);
-      if (m.type === 'log')           append(m.speaker, m.text);
-      if (m.type === 'status')        setStatus(m.state);
-      if (m.type === 'wake')          sys('Wake word detected — connecting…');
-      if (m.type === 'sys')           sys(m.text);
-      if (m.type === 'file_received') _onFileReceived(m);
-    };
+    function _setLinkStatus(text) {
+      pill.className = 'pill';
+      stTxt.textContent = text;
+      wake.classList.add('show');
+    }
+
+    function _clearRemoteAuth() {
+      sessionStorage.removeItem('jarvis_token');
+      sessionStorage.removeItem('jarvis_key');
+      location.replace('/login');
+    }
+
+    async function _verifyRemoteSession() {
+      try {
+        const response = await _authFetch('/api/session', { cache: 'no-store' });
+        if (response.status === 401) _clearRemoteAuth();
+      } catch (_) {
+        // Offline or unreachable: retain pairing and retry, don't erase it.
+      }
+    }
+
+    function _stopHeartbeat() {
+      if (_heartbeatTimer !== null) clearInterval(_heartbeatTimer);
+      _heartbeatTimer = null;
+      _awaitingPong = false;
+    }
+
+    function _scheduleReconnect(immediate = false) {
+      if (_wsRetryTimer !== null || navigator.onLine === false) return;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+      const delay = immediate ? 0 : _wsRetryMs;
+      _wsRetryMs = Math.min(_wsRetryMs * 2, 30000);
+      _setLinkStatus('Reconnecting…');
+      _wsRetryTimer = setTimeout(() => {
+        _wsRetryTimer = null;
+        _connectRemote();
+      }, delay);
+    }
+
+    function _connectRemote() {
+      if (navigator.onLine === false || !_authToken) {
+        _setLinkStatus('Offline');
+        return;
+      }
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+      let socket;
+      try { socket = new WebSocket(_wsUrl); }
+      catch (_) { _scheduleReconnect(); return; }
+      ws = socket;
+      _setLinkStatus('Connecting…');
+
+      socket.onopen = () => {
+        if (ws !== socket) return;
+        _wsRetryMs = 1000;
+        _setLinkStatus('Connected');
+        sys('Remote session active.');
+        toast('Connected');
+        _stopHeartbeat();
+        _heartbeatTimer = setInterval(() => {
+          if (socket.readyState !== WebSocket.OPEN || document.hidden) return;
+          if (_awaitingPong) { socket.close(); return; }
+          _awaitingPong = true;
+          try { socket.send(JSON.stringify({ type: 'ping' })); }
+          catch (_) { socket.close(); }
+        }, 30000);
+      };
+
+      socket.onclose = e => {
+        if (ws !== socket) return;
+        _stopHeartbeat();
+        ws = null;
+        if (e.code === 4001 || e.code === 4401) {
+          _clearRemoteAuth();
+          return;
+        }
+        _setLinkStatus(navigator.onLine === false ? 'Offline' : 'Reconnecting…');
+        // Some browsers report unauthorized handshakes as code 1006.
+        void _verifyRemoteSession();
+        _scheduleReconnect();
+      };
+      socket.onerror = () => { /* onclose owns retries and visible status */ };
+      socket.onmessage = e => {
+        if (ws !== socket) return;
+        let m;
+        try { m = JSON.parse(e.data); } catch (_) { return; }
+        if (m.type === 'pong') { _awaitingPong = false; return; }
+        _awaitingPong = false;
+        if (m.event_id) {
+          if (_seenEventIds.has(m.event_id)) return;
+          _seenEventIds.add(m.event_id);
+          _eventOrder.push(m.event_id);
+          if (_eventOrder.length > 400) _seenEventIds.delete(_eventOrder.shift());
+        }
+        if (m.type === 'log')           append(m.speaker, m.text);
+        if (m.type === 'status')        setStatus(m.state);
+        if (m.type === 'wake')          sys('Wake word detected — connecting…');
+        if (m.type === 'sys')           sys(m.text);
+        if (m.type === 'file_received') _onFileReceived(m);
+      };
+    }
+
+    window.addEventListener('offline', () => {
+      _setLinkStatus('Offline');
+      if (ws) ws.close();
+    });
+    window.addEventListener('online', () => {
+      _wsRetryMs = 1000;
+      _scheduleReconnect(true);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) _scheduleReconnect(true);
+    });
+    _connectRemote();
 
     function setStatus(s) {
+      _remoteState = s;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (s === 'active') {
         pill.className = 'pill on'; stTxt.textContent = 'Active'; wake.classList.remove('show');
       } else {
@@ -384,24 +497,50 @@
     });
 
     // ── Commands ──────────────────────────────────────────────────────────────
-    function doSend() {
+    let _commandInFlight = false;
+
+    async function doSend() {
       const inp = document.getElementById('inp');
       const txt = inp.value.trim();
-      if (!txt) return;
-      inp.value = '';
-      append('user', txt);
-      const enc  = _encrypt(txt);
-      const body = enc ? { enc } : { text: txt };
-      _authFetch('/api/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      if (!txt || _commandInFlight) return;
+      if (navigator.onLine === false) {
+        toast('Offline — command kept in the input');
+        return;
+      }
+
+      _commandInFlight = true;
+      try {
+        const enc = _encrypt(txt);
+        const body = enc ? { enc } : { text: txt };
+        const response = await _authFetch('/api/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (response.status === 401) { _clearRemoteAuth(); return; }
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const result = await response.json();
+        if (!result.ok) throw new Error('Command not accepted');
+        if (inp.value.trim() === txt) inp.value = '';
+        append('user', txt);
+      } catch (_) {
+        // Never auto-retry actions: the server may have received the command
+        // even if the acknowledgement was lost.
+        sys('Command delivery unconfirmed. Check the desktop before retrying; your draft is preserved.');
+      } finally {
+        _commandInFlight = false;
+      }
     }
 
-    function doWake() {
-      sys('Sending wake signal…');
-      _authFetch('/api/wake', { method: 'POST' });
+    async function doWake() {
+      try {
+        const response = await _authFetch('/api/wake', { method: 'POST' });
+        if (response.status === 401) { _clearRemoteAuth(); return; }
+        if (!response.ok) throw new Error('Wake not accepted');
+        sys('Wake signal accepted.');
+      } catch (_) {
+        sys('Wake signal not confirmed — check the connection.');
+      }
     }
 
     document.getElementById('inp').addEventListener('keydown', e => {
