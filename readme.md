@@ -10,8 +10,9 @@ the voice/camera canvas stays in the center, and activity, files, commands and
 microphone controls remain on the right. The remote pages also use that version's
 appearance, with newer tested command/pairing JavaScript retained.
 
-The center canvas keeps the violet looping particle ring. Native window controls,
-accessible in-app Close/Minimize/Maximize buttons, screen-aware initial geometry,
+The center canvas plays the supplied 10.01-second video in a silent local loop.
+Only native operating-system window controls are used; duplicate in-app window buttons
+have been removed. Screen-aware initial geometry,
 confirmation expiry, attachment-state clearing and code-owned product identity remain.
 The Apple light theme, separate conversation workspace and context tabs are removed.
 
@@ -24,7 +25,7 @@ Real provider, microphone, camera and OS workflows require target-device validat
 
 ## Voice activity and popup contrast fixes
 
-The centered ring again exposes prominent LISTENING, THINKING, WORKING and SPEAKING
+The video canvas exposes prominent LISTENING, THINKING, WORKING and SPEAKING
 labels, a real captured-input waveform and a real PCM-output waveform. A persistent
 footer status remains visible while the camera replaces the canvas. Thinking begins
 when a text/voice request is processed; running scheduler tasks keep Working visible,
@@ -36,6 +37,18 @@ the standard right-click menu in the command input and activity/result text fiel
 
 The tests use simulated session events and audio buffers; live provider and actual
 microphone/speaker validation remains a target-device test.
+
+## Bundled video visual
+
+`assets/hud_reference.mp4` is remuxed without video re-encoding from the user-selected
+reference in [assets/README.md](assets/README.md). Qt Multimedia plays it silently in an
+infinite loop through a video sink; no network request is needed at runtime. Soft edge
+fades blend it into the existing dark UI. It pauses when hidden/minimized, when the
+camera replaces the canvas, or after a frame is loaded with Reduce motion enabled.
+Playback errors leave status indicators and assistant controls available.
+
+The animation is decorative. LISTENING/THINKING/WORKING/SPEAKING and the live input/output
+waveform remain driven by the assistant and PCM audio, independently of video playback.
 
 ## Features
 

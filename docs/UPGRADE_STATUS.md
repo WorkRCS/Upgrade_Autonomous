@@ -7,8 +7,10 @@ All implementation remains on `ui/edith-interface`. Do not merge this branch int
 
 - Restore the layout, desktop palette and remote page appearance from `938ffe5`,
   before the two UI redesign commits `8219027` and `7eb2ab4`.
-- Retain the centered violet ring, bounded animation cache and real input feedback.
-- Retain working native/header window controls and screen-aware startup geometry.
+- Play the user-selected bundled video in a silent infinite loop with soft edge blending;
+  retain independent real input/output feedback and activity labels.
+- Retain native OS window controls and screen-aware startup geometry; remove duplicate
+  in-app window buttons.
 - Retain confirmation expiry/serialization, selected-file clearing, newer remote
   command/pairing behavior and Neuron Intelligence product metadata.
 - Remove the Apple light theme and separate conversation/context-tab layout.

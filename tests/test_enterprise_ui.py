@@ -80,41 +80,7 @@ class WorkspaceTests(unittest.TestCase):
 
 
 
-    def test_window_controls_minimize_maximize_restore_and_close(self):
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtTest import QTest
-        window = self.window
-        buttons = window._window_controls
-        for hint in [Qt.WindowType.WindowCloseButtonHint, Qt.WindowType.WindowMinimizeButtonHint,
-                     Qt.WindowType.WindowMaximizeButtonHint]:
-            self.assertTrue(window.windowFlags() & hint)
-        QTest.mouseClick(buttons.minimize_button, Qt.MouseButton.LeftButton)
-        self.app.processEvents()
-        self.assertTrue(window.isMinimized())
-        window.showNormal()
-        self.app.processEvents()
-        QTest.mouseClick(buttons.maximize_button, Qt.MouseButton.LeftButton)
-        self.app.processEvents()
-        self.assertTrue(window.isMaximized())
-        self.assertEqual(buttons.maximize_button.accessibleName(), 'Restore window')
-        QTest.mouseClick(buttons.maximize_button, Qt.MouseButton.LeftButton)
-        self.app.processEvents()
-        self.assertFalse(window.isMaximized())
-        self.assertEqual(buttons.maximize_button.accessibleName(), 'Maximize window')
-        QTest.mouseClick(buttons.close_button, Qt.MouseButton.LeftButton)
-        self.app.processEvents()
-        self.assertFalse(window.isVisible())
 
-    def test_fullscreen_still_has_accessible_window_controls(self):
-        window = self.window
-        window._toggle_fullscreen()
-        self.app.processEvents()
-        self.assertTrue(window.isFullScreen())
-        self.assertTrue(window._window_controls.close_button.isVisible())
-        self.assertTrue(window._window_controls.minimize_button.isVisible())
-        window._window_controls.maximize_button.click()
-        self.app.processEvents()
-        self.assertFalse(window.isFullScreen())
 
 
 
@@ -213,3 +179,20 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(w.hud.state, 'SPEAKING')
         w._on_playback_state(False)
         self.assertEqual(w.hud.state, 'WORKING')
+
+    def test_only_native_window_controls_are_present(self):
+        from PyQt6.QtCore import Qt
+        w = self.window
+        self.assertFalse(hasattr(w, '_window_controls'))
+        for flag in [Qt.WindowType.WindowCloseButtonHint, Qt.WindowType.WindowMinimizeButtonHint,
+                     Qt.WindowType.WindowMaximizeButtonHint]:
+            self.assertTrue(w.windowFlags() & flag)
+        w.showMinimized()
+        self.app.processEvents()
+        self.assertTrue(w.isMinimized())
+        w.showNormal()
+        w.showMaximized()
+        self.app.processEvents()
+        self.assertTrue(w.isMaximized())
+        w.showNormal()
+        self.assertFalse(w.isMaximized())

@@ -34,8 +34,8 @@ from PyQt6.QtWidgets import (
 )
 
 from core.icons import svg_icon
-from core.window_controls import WindowControls, initial_geometry
-from core.energy_ring import draw_energy_ring, LOOP_SECONDS
+from core.window_controls import initial_geometry
+from core.video_visual import LoopingVideo, draw_blended_video
 from core.dark_theme import apply_dark_theme
 
 def _base_dir() -> Path:
@@ -360,6 +360,8 @@ class HudCanvas(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMinimumSize(240, 240)
         self._loop_started = time.monotonic()
+        self._video = LoopingVideo(BASE_DIR / "assets" / "hud_reference.mp4", self)
+        self._video.frame_ready.connect(self.update)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self.muted    = False
@@ -397,6 +399,14 @@ class HudCanvas(QWidget):
         # 60 times per second on battery-powered or low-end machines.
         self._tmr.start(33)
 
+    def hideEvent(self, event):
+        self._video.sync(False, getattr(self, "reduced_motion", False))
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._video.sync(True, getattr(self, "reduced_motion", False))
+
     def set_input_level(self, level: float, source: str = "PC") -> None:
         """Qt-thread-only; values arrive through MainWindow's queued signal."""
         if self.muted or self.speaking:
@@ -433,6 +443,7 @@ class HudCanvas(QWidget):
             self._face_px = None
 
     def _step(self):
+        self._video.sync(self.isVisible() and not self.window().isMinimized(), getattr(self, "reduced_motion", False))
         if getattr(self, "reduced_motion", False):
             self._mic_level = self._mic_target if time.monotonic() - self._mic_last_packet < .65 else 0.0
             self._tmr.setInterval(250)
@@ -446,7 +457,7 @@ class HudCanvas(QWidget):
         self._mic_level += (drive - self._mic_level) * 0.36
         input_active = listening and mic_fresh and self._mic_level > 0.08
         # Do not spend full-rate painting time while idle or camera view is shown.
-        frame_ms = 250 if not self.isVisible() else 33
+        frame_ms = 250 if not self.isVisible() or self.window().isMinimized() else 33
         if self._tmr.interval() != frame_ms:
             self._tmr.setInterval(frame_ms)
         if now - self._last_t > (0.12 if self.speaking or input_active else 0.5):
@@ -510,14 +521,17 @@ class HudCanvas(QWidget):
         clip = QPainterPath()
         clip.addRoundedRect(QRectF(self.rect()), 22, 22)
         painter.setClipPath(clip)
-        painter.fillRect(self.rect(), QColor("#05030D"))
-        reduced = getattr(self, "reduced_motion", False)
-        phase = 0.0 if reduced else ((time.monotonic() - self._loop_started) % LOOP_SECONDS) / LOOP_SECONDS * math.tau
+        painter.fillRect(self.rect(), QColor(C.BG))
         visual = QRectF(0, 0, self.width(), max(60, self.height() - 88))
         fresh = time.monotonic() - self._mic_last_packet < .65
         input_level = self._mic_level if fresh and not self.muted and not self.speaking else 0.0
         output_level = self._out_level if self.speaking and time.monotonic() - self._out_last < .65 else 0.0
-        draw_energy_ring(painter, visual, phase, max(input_level, output_level), self.speaking, self.muted and not self.speaking)
+        draw_blended_video(painter, visual, self._video.frame, C.BG)
+        if self._video.frame.isNull():
+            painter.setPen(QColor(C.TEXT_DIM))
+            painter.setFont(QFont(FONT_MAIN, 10))
+            painter.drawText(visual, Qt.AlignmentFlag.AlignCenter,
+                             "Animation unavailable" if self._video.error else "Loading animation…")
         state = self.state.upper()
         text = state
         if self.muted and state not in {"WORKING", "THINKING", "SPEAKING"}:
@@ -3085,8 +3099,6 @@ class MainWindow(QMainWindow):
         )
         lay = QHBoxLayout(w)
         lay.setContentsMargins(12, 0, 16, 0)
-        self._window_controls = WindowControls(self, w)
-        lay.addWidget(self._window_controls)
 
         def _badge(txt, color=C.TEXT_MED):
             l = QLabel(txt)
