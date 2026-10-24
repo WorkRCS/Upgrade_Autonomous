@@ -4084,6 +4084,15 @@ class _RootShim:
 
 class EdithUI:
     def __init__(self, face_path: str, size=None):
+        if platform.system() == "Windows":
+            # Keep EDITH taskbar identity separate from generic pythonw.exe apps.
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "EDITH.PersonalAssistant.Desktop"
+                )
+            except (AttributeError, OSError):
+                pass
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
         self._app.setApplicationName("EDITH")
