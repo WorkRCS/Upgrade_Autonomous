@@ -57,3 +57,15 @@ task-completion or unrestricted access to arbitrary devices is claimed.
   contains no traceback, so an actual crash cause is not established by that log.
 - Keep the reference video byte-for-byte. The broader platform/web prototype remains
   incomplete and is not included in this focused patch. No merge to main.
+
+## Platform/telemetry implementation checkpoint
+
+The runtime-selected SystemController adapters and structured results are now
+implemented in `edith/platform/`. The native telemetry UI consumes the shared
+background collector cache, including cached uptime/process count; it no longer
+samples these on the Qt timer. Missing individual sensors remain null/N/A.
+
+Controller methods already reject unconfirmed sensitive operations, but this is
+not yet the complete legacy tool/Settings permission migration or global ESC
+integration. See [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md) for the
+ordered completion ledger. No UI redesign or video asset replacement is included.

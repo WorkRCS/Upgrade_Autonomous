@@ -380,3 +380,22 @@ Runtime diagnostics omit exception values to avoid recording API credentials.
 FFmpeg codec metadata and Qt multimedia destruction messages alone do not prove
 a crash; capture the process exit code and these logs. In PowerShell, run
 `python main.py`, then `$LASTEXITCODE`.
+
+## Platform controller and cached telemetry
+
+`edith.platform.get_controller()` selects Windows, macOS, Linux or an explicit
+generic fallback from the running OS. Public methods return
+`{ok, data, error, unsupported}`. Optional NVML/WMI sensors fall back to available
+OS inventory or N/A; inventory alone is never reported as GPU utilization.
+Install updated requirements with the same virtual-environment Python:
+`python -m pip install -r requirements.txt`.
+
+The desktop metric timer reads one background snapshot. CPU/per-core/frequency,
+load, RAM/swap, disk/I/O, network counters/throughput, battery, uptime and process
+count are collected independently, so one missing sensor does not freeze the UI.
+The first network throughput sample is N/A, and link throughput is not an Internet
+speed test. Physical sensor/permission support still requires device testing.
+
+Sensitive controller calls fail without a confirmation callback. This does not
+mean that every pre-existing legacy tool has already migrated to the new layer.
+See docs/IMPLEMENTATION_PROGRESS.md for completed and remaining integration stages.

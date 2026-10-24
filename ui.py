@@ -234,123 +234,21 @@ def _nvml_gpu_windows() -> float:
 
 class _SysMetrics:
     def __init__(self):
-        self.cpu  = 0.0
-        self.mem  = 0.0
-        self.net  = 0.0   
-        self.gpu  = -1.0  
-        self.tmp  = -1.0  
-        self._lock = threading.Lock()
-        try:
-            self._last_net = psutil.net_io_counters()
-        except (OSError, PermissionError):
-            self._last_net = None
-        self._last_net_t = time.time()
-        self._running = True
-        t = threading.Thread(target=self._loop, daemon=True)
-        t.start()
-
-    def _loop(self):
-        while self._running:
-            try:
-                self._update()
-            except Exception:
-                pass
-            time.sleep(1.5)
-
-    def _update(self):
-        cpu = psutil.cpu_percent(interval=None)
-        mem = psutil.virtual_memory().percent
-
-        try:
-            nc = psutil.net_io_counters()
-        except (OSError, PermissionError):
-            nc = None
-        now = time.time()
-        dt  = now - self._last_net_t
-        if dt > 0 and nc is not None and self._last_net is not None:
-            sent = (nc.bytes_sent - self._last_net.bytes_sent) / dt
-            recv = (nc.bytes_recv - self._last_net.bytes_recv) / dt
-            net  = (sent + recv) / (1024 * 1024)
-        else:
-            net = 0.0
-        self._last_net   = nc
-        self._last_net_t = now
-
-        gpu = self._get_gpu()
-        tmp = self._get_temp()
-
-        with self._lock:
-            self.cpu = cpu
-            self.mem = mem
-            self.net = net
-            self.gpu = gpu
-            self.tmp = tmp
-
-    def _get_gpu(self) -> float:
-        try:
-            import pynvml  # type: ignore
-            pynvml.nvmlInit()
-            h = pynvml.nvmlDeviceGetHandleByIndex(0)
-            return float(pynvml.nvmlDeviceGetUtilizationRates(h).gpu)
-        except Exception:
-            pass
-
-        if _OS == "Windows":
-            return _nvml_gpu_windows()
-
-        try:
-            import ctypes
-            _lib = "libnvidia-ml.so.1" if _OS == "Linux" else "libnvidia-ml.dylib"
-
-            class _Util(ctypes.Structure):
-                _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
-
-            nv = ctypes.CDLL(_lib)
-            nv.nvmlInit_v2()
-            dev = ctypes.c_void_p()
-            nv.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(dev))
-            u = _Util()
-            nv.nvmlDeviceGetUtilizationRates(dev, ctypes.byref(u))
-            return float(u.gpu)
-        except Exception:
-            pass
-
-        return -1.0
-
-    def _get_temp(self) -> float:
-        try:
-            temps = psutil.sensors_temperatures()
-            for name in ["coretemp", "k10temp", "cpu_thermal", "acpitz",
-                         "cpu-thermal", "zenpower", "it8688"]:
-                if name in temps and temps[name]:
-                    return temps[name][0].current
-            for entries in temps.values():
-                if entries:
-                    return entries[0].current
-        except Exception:
-            pass
-
-        if _OS == "Windows":
-            try:
-                import wmi  # type: ignore
-                w = wmi.WMI(namespace="root/wmi")
-                tz = w.MSAcpi_ThermalZoneTemperature()
-                if tz:
-                    return (tz[0].CurrentTemperature / 10.0) - 273.15
-            except Exception:
-                pass
-
-        return -1.0
+        from edith.platform.service import telemetry_service
+        self._service = telemetry_service()
 
     def snapshot(self) -> dict:
-        with self._lock:
-            return {
-                "cpu": self.cpu,
-                "mem": self.mem,
-                "net": self.net,
-                "gpu": self.gpu,
-                "tmp": self.tmp,
-            }
+        data = self._service.snapshot().get("data") or {}
+        net = data.get("throughput")
+        return {
+            "cpu":data.get("cpu_percent"),
+            "mem":(data.get("memory") or {}).get("percent"),
+            "net":((net.get("sent_bps",0)+net.get("received_bps",0))/1048576) if net else None,
+            "gpu":(data.get("gpu") or {}).get("percent"),
+            "tmp":(data.get("temperature") or {}).get("celsius"),
+            "uptime_seconds":data.get("uptime_seconds"),
+            "process_count":data.get("process_count"),
+        }
 
 
 _metrics = _SysMetrics()
@@ -3040,54 +2938,22 @@ class MainWindow(QMainWindow):
             self._position_quick_drawer()
 
     def _update_metrics(self):
+        # Cached values only: no psutil, sensor or subprocess call on the Qt loop.
         snap = _metrics.snapshot()
-
-        # CPU
-        cpu = snap["cpu"]
-        self._bar_cpu.set_value(cpu, f"{cpu:.0f}%")
-
-        # MEM
-        mem = snap["mem"]
-        self._bar_mem.set_value(mem, f"{mem:.0f}%")
-
-        # NET
-        net = snap["net"]
-        if net < 1.0:
-            net_str = f"{net*1024:.0f}KB/s"
-        else:
-            net_str = f"{net:.1f}MB/s"
-        net_pct = min(100, net * 10)  # 10 MB/s = %100
-        self._bar_net.set_value(net_pct, net_str)
-
-        # GPU
-        gpu = snap["gpu"]
-        if gpu >= 0:
-            self._bar_gpu.set_value(gpu, f"{gpu:.0f}%")
-        else:
-            self._bar_gpu.set_value(0, "N/A")
-
-        # TMP
-        tmp = snap["tmp"]
-        if tmp >= 0:
-            tmp_pct = min(100, (tmp / 100) * 100)
-            self._bar_tmp.set_value(tmp_pct, f"{tmp:.0f}°C")
-        else:
-            self._bar_tmp.set_value(0, "N/A")
-
-        try:
-            boot_t  = psutil.boot_time()
-            elapsed = time.time() - boot_t
-            h = int(elapsed // 3600)
-            m = int((elapsed % 3600) // 60)
-            self._uptime_lbl.setText(f"UP  {h:02d}:{m:02d}")
-        except Exception:
-            self._uptime_lbl.setText("UP  --:--")
-
-        try:
-            proc_count = len(psutil.pids())
-            self._proc_lbl.setText(f"PROC  {proc_count}")
-        except Exception:
-            self._proc_lbl.setText("PROC  --")
+        for name, bar in (("cpu",self._bar_cpu),("mem",self._bar_mem),
+                          ("gpu",self._bar_gpu),("tmp",self._bar_tmp)):
+            value = snap.get(name)
+            suffix = "°C" if name == "tmp" else "%"
+            bar.set_value(value if value is not None else 0,
+                          f"{value:.0f}{suffix}" if value is not None else "N/A")
+        net = snap.get("net")
+        net_text = "N/A" if net is None else f"{net*1024:.0f}KB/s" if net < 1 else f"{net:.1f}MB/s"
+        self._bar_net.set_value(min(100,net*10) if net is not None else 0,net_text)
+        elapsed = snap.get("uptime_seconds")
+        self._uptime_lbl.setText(f"UP  {int(elapsed//3600):02d}:{int(elapsed%3600//60):02d}"
+                                if elapsed is not None else "UP  N/A")
+        count = snap.get("process_count")
+        self._proc_lbl.setText(f"PROC  {count}" if count is not None else "PROC  N/A")
 
 
     def _build_header(self) -> QWidget:
