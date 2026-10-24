@@ -821,7 +821,6 @@ def _remove_old_windows_task_if_owned(script_path: Path) -> None:
 def _schedule_windows(hour: int, minute: int) -> str:
     task_name   = "EDITH_GameUpdater"
     script_path = Path(__file__).resolve()
-    _remove_old_windows_task_if_owned(script_path)
     subprocess.run(["schtasks", "/Delete", "/TN", task_name, "/F"], capture_output=True, **_CNW)
     for extra in (["/RL", "HIGHEST", "/RU", "SYSTEM"], []):
         cmd    = ["schtasks", "/Create", "/TN", task_name,
@@ -829,6 +828,7 @@ def _schedule_windows(hour: int, minute: int) -> str:
                   "/SC", "DAILY", "/ST", f"{hour:02d}:{minute:02d}", "/F", *extra]
         result = subprocess.run(cmd, capture_output=True, text=True, **_CNW)
         if result.returncode == 0:
+            _remove_old_windows_task_if_owned(script_path)
             return f"Daily game update scheduled at {hour:02d}:{minute:02d}."
     return f"Scheduling failed: {result.stderr.strip()}"
 
