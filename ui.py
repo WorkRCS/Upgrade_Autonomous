@@ -63,27 +63,29 @@ _RIGHT_W = 340
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 class C:
-    BG        = "#0B0D12"
-    PANEL     = "#121722"
-    PANEL2    = "#191F2B"
-    BORDER    = "#293142"
-    BORDER_B  = "#39445A"
-    BORDER_A  = "#4B5870"
-    PRI       = "#A5B4FC"   # Restrained periwinkle accent
-    PRI_DIM   = "#7889D8"
-    PRI_GHO   = "#252B49"
-    ACC       = "#D7B8F7"   # Soft lavender secondary accent
-    ACC2      = "#E8C995"   # Warm editorial highlight
-    GREEN     = "#76D7B0"
-    GREEN_D   = "#3E9D7A"
+    # Futuristic high-contrast refinement of the existing EDITH layout.
+    # Saved user accent overrides still apply; model and device settings do not change.
+    BG        = "#070D17"
+    PANEL     = "#101C2D"
+    PANEL2    = "#14263B"
+    BORDER    = "#214159"
+    BORDER_B  = "#32647E"
+    BORDER_A  = "#417A92"
+    PRI       = "#61DFF5"
+    PRI_DIM   = "#39AAC8"
+    PRI_GHO   = "#14364B"
+    ACC       = "#C0A5FD"
+    ACC2      = "#F1C78E"
+    GREEN     = "#64EDBE"
+    GREEN_D   = "#2DA888"
     RED       = "#F48F9D"
     MUTED_C   = "#F48F9D"
-    TEXT      = "#F1F3F9"
-    TEXT_DIM  = "#7F899B"
-    TEXT_MED  = "#B1B9C8"
+    TEXT      = "#F2F7FF"
+    TEXT_DIM  = "#95A7BB"
+    TEXT_MED  = "#BED0E2"
     WHITE     = "#FFFFFF"
-    DARK      = "#080A10"
-    BAR_BG    = "#171C27"
+    DARK      = "#060B13"
+    BAR_BG    = "#101A2A"
 
 
 # Ana renge (accent) bağlı anahtarlar — durum renkleri (ACC, GREEN, RED…) sabit kalır
@@ -2576,6 +2578,12 @@ class MainWindow(QMainWindow):
         self._clock_tmr.start(1000)
         self._tick_clock()
 
+        # The signal bar refreshes at 4 Hz; the HUD animation runs at 30 FPS.
+        self._mic_status_tmr = QTimer(self)
+        self._mic_status_tmr.timeout.connect(self._refresh_mic_status)
+        self._mic_status_tmr.start(250)
+        self._refresh_mic_status()
+
         # Metrik güncelleme timer'ı
         self._metric_tmr = QTimer(self)
         self._metric_tmr.timeout.connect(self._update_metrics)
@@ -3093,7 +3101,11 @@ class MainWindow(QMainWindow):
     def _build_header(self) -> QWidget:
         w = QWidget()
         w.setFixedHeight(54)
-        w.setStyleSheet(f"background: {C.DARK}; border-bottom: 1px solid {C.BORDER};")
+        w.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 {C.DARK}, stop:0.5 {C.PANEL}, stop:1 {C.DARK}); "
+            f"border-bottom: 1px solid {C.PRI_DIM};"
+        )
         lay = QHBoxLayout(w)
         lay.setContentsMargins(20, 0, 20, 0)
 
@@ -3674,27 +3686,31 @@ class MainWindow(QMainWindow):
         self._input.setToolTip("Type a command or question. Ctrl+K focuses this field.")
         self._input.setPlaceholderText("Type a command or question…")
         self._input.setFont(QFont(FONT_MAIN, 10))
-        self._input.setFixedHeight(32)
+        self._input.setFixedHeight(36)
         self._input.setStyleSheet(f"""
             QLineEdit {{
                 background: {C.DARK}; color: {C.WHITE};
-                border: 1px solid {C.BORDER}; border-radius: 4px; padding: 4px 10px;
+                selection-background-color: {C.PRI_DIM};
+                border: 1px solid {C.BORDER_B}; border-radius: 7px;
+                padding: 5px 12px;
             }}
-            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+            QLineEdit:hover {{ border: 1px solid {C.PRI_DIM}; }}
+            QLineEdit:focus {{ border: 2px solid {C.PRI}; }}
         """)
         self._input.returnPressed.connect(self._send)
         row.addWidget(self._input)
 
         send = QPushButton("▸")
-        send.setFixedSize(32, 32)
+        send.setFixedSize(36, 36)
         send.setFont(QFont(FONT_MAIN, 12, QFont.Weight.Bold))
         send.setCursor(Qt.CursorShape.PointingHandCursor)
         send.setStyleSheet(f"""
             QPushButton {{
                 background: {C.PANEL}; color: {C.PRI};
-                border: 1px solid {C.PRI_DIM}; border-radius: 4px;
+                border: 1px solid {C.PRI_DIM}; border-radius: 7px;
             }}
             QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+            QPushButton:pressed {{ background: {C.BORDER_B}; }}
         """)
         send.setAccessibleName("Send command to EDITH")
         send.setToolTip("Send command (Enter)")
@@ -3909,6 +3925,27 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_fl("[F4] Mute  ·  [F11] Fullscreen"))
         lay.addStretch()
+        # Compact always-visible microphone signal, even while camera replaces HUD.
+        self._mic_footer_bar = QProgressBar()
+        self._mic_footer_bar.setRange(0, 100)
+        self._mic_footer_bar.setValue(0)
+        self._mic_footer_bar.setTextVisible(False)
+        self._mic_footer_bar.setFixedSize(64, 6)
+        self._mic_footer_bar.setStyleSheet(f"""
+            QProgressBar {{ border: none; background: {C.PANEL2};
+                border-radius: 3px; }}
+            QProgressBar::chunk {{ background: {C.GREEN};
+                border-radius: 3px; }}
+        """)
+        self._mic_footer_bar.setAccessibleName("Live microphone intensity meter")
+        lay.addWidget(self._mic_footer_bar)
+        lay.addSpacing(7)
+        self._mic_footer_lbl = _fl("MIC  WAITING", C.ACC2)
+        self._mic_footer_lbl.setAccessibleName("Microphone capture status")
+        self._mic_footer_lbl.setToolTip(
+            "Shows captured audio intensity, not speech recognition or cloud delivery."
+        )
+        lay.addWidget(self._mic_footer_lbl)
         return w
 
     def _on_file_selected(self, path: str):
@@ -4341,6 +4378,32 @@ class MainWindow(QMainWindow):
     def _on_mic_level(self, level: float, source: str) -> None:
         if not self._muted and self.hud.state == "LISTENING":
             self.hud.set_input_level(level, source)
+
+    def _refresh_mic_status(self) -> None:
+        """Keep the input status truthful when audio packets stop arriving."""
+        if self._muted:
+            label, color, level = "MIC  MUTED", C.MUTED_C, 0.0
+        elif self.hud.speaking:
+            label, color, level = "EDITH  SPEAKING", C.ACC, 0.0
+        elif self.hud.state == "LISTENING":
+            fresh = time.monotonic() - self.hud._mic_last_packet < 0.65
+            if fresh:
+                level = self.hud._mic_level
+                label = (f"{self.hud._mic_source}  AUDIO INPUT"
+                         if level > 0.11 else f"{self.hud._mic_source}  MIC READY")
+                color = C.GREEN
+            else:
+                label, color, level = "MIC  NO AUDIO", C.ACC2, 0.0
+        else:
+            label, color, level = "MIC  STANDBY", C.TEXT_DIM, 0.0
+        if self._mic_footer_lbl.text() != label:
+            self._mic_footer_lbl.setText(label)
+            self._mic_footer_lbl.setStyleSheet(
+                f"color: {color}; background: transparent;"
+            )
+        value = max(0, min(100, int(level * 100)))
+        if self._mic_footer_bar.value() != value:
+            self._mic_footer_bar.setValue(value)
 
     def _apply_state(self, state: str):
         self.hud.state = state
