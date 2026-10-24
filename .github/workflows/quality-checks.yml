@@ -23,11 +23,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install lightweight unit-test dependencies
-        run: python -m pip install pillow requests
+      - name: Install UI smoke-test dependencies
+        run: python -m pip install pillow requests psutil PyQt6
       - name: Compile all Python modules
         run: python -m compileall -q main.py ui.py setup.py actions core dashboard memory plugins tests config tools
-      - name: Run product contract tests
+      - name: Run product contract and headless Qt UI tests
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: python -m unittest discover -s tests -v
       - name: Check inline dashboard JavaScript
         run: python tests/check_inline_js.py
