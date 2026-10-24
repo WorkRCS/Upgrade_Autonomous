@@ -17,6 +17,9 @@ class Phase4QtSmokeTests(unittest.TestCase):
             from PyQt6.QtWidgets import QApplication
             import ui
         except ImportError as exc:
+            # CI must run GUI smoke tests, not silently skip due missing Qt libs.
+            if os.environ.get("CI", "").lower() == "true":
+                raise RuntimeError(f"Headless Qt runtime unavailable in CI: {exc}") from exc
             raise unittest.SkipTest(f"PyQt6 runtime not installed: {exc}") from exc
         cls.ui = ui
         cls.app = QApplication.instance() or QApplication(["edith-phase4-qt-test"])
