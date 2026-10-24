@@ -22,3 +22,8 @@ memory/*.json
 Thumbs.db
 desktop.ini
 *.bak
+
+# Generated EDITH app icon and local uploads
+config/edith.ico
+config/edith.png
+uploads/
