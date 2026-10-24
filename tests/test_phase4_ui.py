@@ -88,7 +88,11 @@ class Phase4UiContractTests(unittest.TestCase):
     def test_cross_thread_ui_updates_and_input_accessibility(self):
         self.assertIn("task_detail_signal = pyqtSignal(object)", self.ui)
         self.assertIn("self.task_detail_signal.connect(self._update_task_details)", self.ui)
-        self.assertIn("self.ui._win.task_detail_signal.emit(view)", self.main)
+        # Qt signals can outlive their QWidget during shutdown.  Task status
+        # must use EdithUI's guarded emitter rather than dereferencing _win.
+        self.assertIn('self.ui._emit_if_open("task_detail_signal", view)', self.main)
+        self.assertIn('self.ui._emit_if_open(', self.main)
+        self.assertNotIn("self.ui._win.task_detail_signal.emit(view)", self.main)
         self.assertIn("compact_task_view(states)", self.main)
         self.assertIn('QShortcut(QKeySequence("Ctrl+K"), self)', self.ui)
         self.assertIn('self._input.setAccessibleName("EDITH command input")', self.ui)
