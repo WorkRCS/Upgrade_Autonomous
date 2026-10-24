@@ -80,6 +80,7 @@ from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
+from core.narration_audio     import SpeechBuffer, SpeechPlayer
 from core.audio_meter          import pcm16_level
 from core.product_identity import PRODUCT_IDENTITY
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
@@ -661,6 +662,8 @@ class EdithLive:
         self._connecting = False
         self.session              = None
         self.audio_in_queue       = None
+        self._speech_player       = None
+        self._tool_call_queue     = None
         self.out_queue            = None
         self._pending_text_started_at: float | None = None
         self._loop                = None
@@ -955,20 +958,12 @@ class EdithLive:
             self.ui.set_state("THINKING" if getattr(self, "_response_pending", False) else "LISTENING")
 
     def interrupt(self) -> None:
-        """Stop EDITH mid-speech: drain queued audio and open mic immediately."""
+        """Cancel queued narration and signal the native writer to abort playback."""
         self._interrupted = True
         self._response_pending = False
         q = self.audio_in_queue
-        if q:
-            drained = 0
-            while True:
-                try:
-                    q.get_nowait()
-                    drained += 1
-                except Exception:
-                    break
-            if drained:
-                print(f"[Assistant] ✋ Interrupted — {drained} audio chunks discarded")
+        if q is not None:
+            q.clear()  # Thread-safe; also aborts queued device playback on the writer thread.
         self.set_speaking(False)
         if self._turn_done_event:
             self._turn_done_event.clear()
@@ -1475,6 +1470,11 @@ class EdithLive:
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
+            # Do not send microphone packets captured just before playback began.
+            # They can echo the assistant into Live's automatic interruption detector.
+            player = getattr(self, "_speech_player", None)
+            if self._is_speaking or (player and player.snapshot()["playing"]):
+                continue
             await self.session.send_realtime_input(media=msg)
 
     def _publish_mic_activity(self, data: bytes, source: str = "PC") -> None:
@@ -1544,8 +1544,18 @@ class EdithLive:
             while True:
                 async for response in self.session.receive():
 
+                    sc = response.server_content
+                    server_interrupted = bool(sc and getattr(sc, "interrupted", False))
+                    if server_interrupted:
+                        self.audio_in_queue.clear()
+                        self._interrupted = False
+                        self._response_pending = False
+                        out_buf = []
+                        self.set_speaking(False)
+                        self.ui.write_log("AUDIO: Provider interrupted the response; cancelled audio was cleared.")
+
                     if response.data:
-                        if self._interrupted:
+                        if self._interrupted or server_interrupted:
                             pass  # discard: interrupted
                         else:
                             if self._pending_text_started_at is not None:
@@ -1558,15 +1568,9 @@ class EdithLive:
                                 )
                             if self._turn_done_event and self._turn_done_event.is_set():
                                 self._turn_done_event.clear()
-                            # Split into ~50 ms chunks so interrupt() stops audio within 50 ms
-                            # (24000 Hz × 2 bytes/sample × 0.05 s = 2400 bytes per slice)
-                            _audio_data = response.data
-                            _SLICE = 2400
-                            for _i in range(0, len(_audio_data), _SLICE):
-                                if self._audio_output_ready:
-                                    enqueue_latest_audio(
-                                        self.audio_in_queue, _audio_data[_i : _i + _SLICE]
-                                    )
+                            # Preserve every byte, including audio received before the
+                            # device opens. Only microphone traffic may drop stale chunks.
+                            self.audio_in_queue.put_nowait(response.data)
 
                     if response.server_content:
                         sc = response.server_content
@@ -1586,6 +1590,7 @@ class EdithLive:
                                 self._last_user_speech = time.monotonic()
 
                         if sc.turn_complete:
+                            self.audio_in_queue.finish_turn()
                             self._response_pending = False
                             if not self._is_speaking and self.audio_in_queue.empty():
                                 self.ui.set_state("LISTENING")
@@ -1658,108 +1663,89 @@ class EdithLive:
                                 asyncio.create_task(_cam_close())
 
                     if response.tool_call:
-                        fn_responses = await self._execute_tool_batch(
-                            response.tool_call.function_calls
-                        )
                         self._response_pending = True
-                        if not self._is_speaking:
-                            self.ui.set_state("THINKING")
-                        await self.session.send_tool_response(
-                            function_responses=fn_responses
-                        )
-                        # voiceName is fixed at Live setup, so reconnect after the tool response is delivered.
-                        if self._reconfigure_reason and self._reconfigure_event:
-                            self._reconfigure_event.set()
+                        # Tools have their own serial consumer. Receiving PCM/control
+                        # events must continue while a tool is running or speaking.
+                        self._tool_call_queue.put_nowait(response.tool_call.function_calls)
         except Exception as e:
             print(f"[Assistant] ❌ Recv: {e}")
             traceback.print_exc()
             raise
 
-    async def _play_audio(self):
-        """Keep text and remote interaction alive on systems without speakers.
-
-        Never send Gemini's 24 kHz PCM to a device at a different sample rate
-        without proper conversion. Retry the configured output device after an
-        audio failure instead of restarting the entire Live session.
-        """
-        print("[Assistant] 🔊 Play started")
-        unavailable = False
-        self._audio_output_ready = False
+    async def _process_tool_calls(self):
+        """Keep batch ordering and existing approvals without blocking receive."""
         while True:
-            stream = None
-            try:
-                stream = sd.RawOutputStream(
-                    samplerate=RECEIVE_SAMPLE_RATE,
-                    channels=CHANNELS,
-                    dtype="int16",
-                    blocksize=CHUNK_SIZE,
-                )
-                stream.start()
-                self._audio_output_ready = True
-                if unavailable:
-                    # Discard audio that accumulated while no speaker was usable.
-                    while True:
-                        try:
-                            self.audio_in_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                    self.ui.write_log("AUDIO: Speaker available again.")
-                unavailable = False
+            calls = await self._tool_call_queue.get()
+            fn_responses = await self._execute_tool_batch(calls)
+            self._response_pending = True
+            if not self._is_speaking:
+                self.ui.set_state("THINKING")
+            await self.session.send_tool_response(function_responses=fn_responses)
+            # voiceName is fixed at setup; reconnect only after delivering the response.
+            if self._reconfigure_reason and self._reconfigure_event:
+                self._reconfigure_event.set()
 
-                while True:
-                    try:
-                        chunk = await asyncio.wait_for(
-                            self.audio_in_queue.get(), timeout=0.1
-                        )
-                    except asyncio.TimeoutError:
-                        if (
-                            self._turn_done_event
-                            and self._turn_done_event.is_set()
-                            and self.audio_in_queue.empty()
-                        ):
-                            self.set_speaking(False)
-                            self._turn_done_event.clear()
-                        continue
+    async def _play_audio(self):
+        """Observe a dedicated writer; no per-chunk executor/scheduler handoff."""
+        player = SpeechPlayer(self.audio_in_queue, sd.RawOutputStream)
+        self._speech_player = player
+        player.start()
+        was_playing = False
+        try:
+            while True:
+                state = player.snapshot()
+                self._audio_output_ready = state["ready"]
+                playing = state["playing"] and not self._interrupted
+                if playing != was_playing:
+                    self.set_speaking(playing)
+                    was_playing = playing
+                self.ui.show_output_level(state["level"] if playing else 0.)
+                while not player.events.empty():
+                    self.ui.write_log(player.events.get_nowait())
+                await asyncio.sleep(.025)
+        finally:
+            player.stop()
+            # Normal PortAudio writes are 50 ms. Bound teardown if a driver hangs.
+            for _ in range(40):
+                if player.stopped.is_set():
+                    break
+                await asyncio.sleep(.025)
+            self._speech_player = None
+            self._audio_output_ready = False
+            self.set_speaking(False)
+            self.ui.show_output_level(0.)
 
-                    self.set_speaking(True)
-                    batch = bytearray(chunk)
-                    while len(batch) < 9600:
-                        try:
-                            batch.extend(self.audio_in_queue.get_nowait())
-                        except asyncio.QueueEmpty:
-                            break
-                    self.ui.show_output_level(pcm16_level(bytes(batch)))
-                    await asyncio.to_thread(stream.write, bytes(batch))
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                print(f"[Assistant] Speaker unavailable: {type(exc).__name__}: {exc}")
-                if not unavailable:
-                    self.ui.write_log(
-                        "AUDIO: Speaker unavailable or sample rate unsupported. "
-                        "Text and remote controls remain available; retrying automatically."
-                    )
-                unavailable = True
-                await asyncio.sleep(5)
-            finally:
-                self._audio_output_ready = False
-                self.set_speaking(False)
-                if stream is not None:
-                    try:
-                        stream.stop()
-                    except Exception:
-                        pass
-                    try:
-                        stream.close()
-                    except Exception:
-                        pass
+    async def _wait_for_narration_end(self, timeout=30.) -> bool:
+        """Wait for generation AND hardware drain, with a stable idle boundary."""
+        buffer = self.audio_in_queue
+        deadline = time.monotonic() + timeout
+        idle_since = None
+        while self.session and self.audio_in_queue is buffer:
+            if self._interrupted:
+                return False
+            player = self._speech_player
+            playing = player is not None and player.snapshot()["playing"]
+            now = time.monotonic()
+            done = (self._turn_done_event.is_set() and buffer.finished
+                    and buffer.empty() and not playing)
+            if done:
+                if idle_since is not None and now - idle_since >= .1:
+                    return True
+                if idle_since is None:
+                    idle_since = now
+            else:
+                idle_since = None
+            if now >= deadline:
+                return False
+            await asyncio.sleep(.025)
+        return False
 
     # ── Morning briefing ────────────────────────────────────────────────────────
 
     async def _send_startup_briefing(self) -> None:
         """
         Two-phase briefing optimized for speed:
-          Phase 1 — instant greeting (no tools) → speech starts in <1s
+          Phase 1 — greeting (no tools) → stream speech as soon as available
           Phase 2 — news pre-fetched in a background thread while Phase 1 plays,
                     delivered as ready text (no Gemini tool-call round-trip) and
                     shown on the UI content panel. Waits for turn_complete event
@@ -1782,6 +1768,7 @@ class EdithLive:
 
         if not self.session:
             return
+        briefing_session = self.session
 
         # ── Phase 1: instant greeting ─────────────────────────────────────────
         lang_clause = f" Respond in {lang}." if lang else ""
@@ -1820,25 +1807,12 @@ class EdithLive:
             try:
                 lang_str = f" Respond in {lang}." if lang else ""
 
-                # Wait for news fetch (already running) and Phase 1 turn-complete
-                # in parallel — whichever takes longer determines the wait time
+                # News is already fetching. Never send another prompt while the
+                # greeting is still queued/playing, even after generation ends.
                 news_done   = asyncio.wrap_future(news_future)
-                turn_waited = False
-                if self._turn_done_event:
-                    try:
-                        await asyncio.wait_for(self._turn_done_event.wait(), timeout=6.0)
-                        turn_waited = True
-                    except asyncio.TimeoutError:
-                        pass
-
-                # Extra buffer: turn_complete fires when Gemini finishes *generating*
-                # Phase 1, but audio may still be playing.  Waiting a beat here
-                # prevents Phase 2 audio from arriving while Phase 1 is mid-sentence
-                # (which sounds like a "repeated first response" to the user).
-                if turn_waited:
-                    await asyncio.sleep(0.8)
-                else:
-                    await asyncio.sleep(1.0)
+                if not await self._wait_for_narration_end() or self.session is not briefing_session:
+                    self.ui.write_log("SYS: News narration skipped because greeting was interrupted, timed out or session changed.")
+                    return
 
                 try:
                     news_text = await asyncio.wait_for(news_done, timeout=8.0)
@@ -1846,7 +1820,7 @@ class EdithLive:
                     self.ui.write_log(f"SYS: News fetch timed out/failed: {e!r}")
                     news_text = ""
 
-                if not self.session:
+                if self.session is not briefing_session:
                     return
 
                 failed = (not news_text) or news_text.startswith(
@@ -2121,7 +2095,8 @@ class EdithLive:
                 ):
                     self.session          = session
                     self._connecting       = False
-                    self.audio_in_queue   = asyncio.Queue(maxsize=120)  # at most ~6s PCM output
+                    self.audio_in_queue   = SpeechBuffer()  # Lossless narration; explicit byte budget.
+                    self._tool_call_queue = asyncio.Queue(maxsize=16)
                     self._audio_output_ready = False
                     # 1024 samples / 16 kHz ≈ 64 ms per microphone chunk.
                     # 32 chunks cap stale audio at ~2 s instead of ~12.8 s.
@@ -2151,6 +2126,7 @@ class EdithLive:
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
+                    tg.create_task(self._process_tool_calls())
                     tg.create_task(self._play_audio())
                     tg.create_task(self._run_system_monitor())
                     tg.create_task(self._run_background_monitor())

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from core.hardware_check import audio_compatibility, desktop_compatibility, report
 from core.audio_meter import pcm16_level
+from core.narration_audio import SpeechBuffer, SpeechPlayer
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -87,6 +88,7 @@ def _audio_method(name: str, fake_sound: object):
         "CHANNELS": 1,
         "CHUNK_SIZE": 1024,
         "pcm16_level": pcm16_level,
+        "SpeechPlayer": SpeechPlayer,
     }
     exec(compile(module, str(ROOT / "main.py"), "exec"), scope)
     return scope[name]
@@ -99,21 +101,22 @@ class AudioHardwareRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def _assert_survives_missing_device(self, method: str, sound: object):
         logs: list[str] = []
-        ui = SimpleNamespace(write_log=logs.append, muted=False)
+        ui = SimpleNamespace(write_log=logs.append, muted=False, show_output_level=lambda level: None)
         edith = SimpleNamespace(
             ui=ui,
             _speaking_lock=threading.Lock(),
             _is_speaking=False,
             _phone_active=False,
             _last_mic_meter_at=0.0,
-            audio_in_queue=asyncio.Queue(maxsize=120),
+            audio_in_queue=SpeechBuffer(),
+            _interrupted=False,
             _turn_done_event=asyncio.Event(),
             set_speaking=lambda value: None,
         )
         function = _audio_method(method, sound)
         task = asyncio.create_task(function(edith))
         try:
-            for _ in range(15):
+            for _ in range(50):
                 if logs:
                     break
                 await asyncio.sleep(0.005)
@@ -135,29 +138,43 @@ class AudioHardwareRecoveryTests(unittest.IsolatedAsyncioTestCase):
             "_play_audio", SimpleNamespace(RawOutputStream=self._failing_stream)
         )
 
-    async def test_real_playback_batch_publishes_pcm_level_before_write(self):
+    async def test_real_playback_worker_publishes_pcm_level_and_drains(self):
         import struct
+        import time
         written, levels, speaking = [], [], []
         class Stream:
             def start(self): pass
             def stop(self): pass
             def close(self): pass
+            def abort(self): pass
             def write(self, data):
                 written.append(data)
-                raise asyncio.CancelledError()
+                time.sleep(.06)
+                return False
         chunk = struct.pack('<h', 6000) * 1200
-        queue = asyncio.Queue()
+        queue = SpeechBuffer()
         queue.put_nowait(chunk)
+        queue.finish_turn()
         obj = SimpleNamespace(audio_in_queue=queue, _turn_done_event=asyncio.Event(),
+            _interrupted=False,
             set_speaking=speaking.append,
             ui=SimpleNamespace(show_output_level=levels.append, write_log=lambda line: None))
         call = _audio_method('_play_audio', SimpleNamespace(RawOutputStream=lambda **kwargs: Stream()))
-        with self.assertRaises(asyncio.CancelledError):
-            await call(obj)
+        task = asyncio.create_task(call(obj))
+        try:
+            for _ in range(100):
+                if written and speaking == [True, False]:
+                    break
+                await asyncio.sleep(.01)
+        finally:
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
         self.assertEqual(written, [chunk])
-        self.assertEqual(levels, [pcm16_level(chunk)])
-        self.assertGreater(levels[0], 0)
-        self.assertEqual(speaking, [True, False])
+        self.assertIn(pcm16_level(chunk), levels)
+        self.assertEqual(levels[-1], 0)
+        self.assertEqual(speaking[:2], [True, False])
+        self.assertIsNone(obj._speech_player)
 
 
 if __name__ == "__main__":

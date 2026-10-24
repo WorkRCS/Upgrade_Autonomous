@@ -18,9 +18,18 @@ All implementation remains on `ui/edith-interface`. Do not merge this branch int
 
 ## Remaining stages
 
+Audio/runtime reliability implementation has started. Generated narration now uses
+a lossless PCM FIFO, a dedicated device writer, startup/rebuffer prefill and explicit
+underrun diagnostics. Tool execution no longer blocks the audio receiver. Startup
+news waits for generation **and** hardware playback to finish instead of a fixed
+delay. See [NARRATION_RELIABILITY.md](NARRATION_RELIABILITY.md) for the failure,
+implementation boundaries and target-device checks. This stage does not implement
+the later provider, voice approval or device-control features.
+
 | Stage | Implementation and acceptance gate |
 | --- | --- |
 | Full branch audit | Inventory both branches and every tool/sub-command; reproduce failures; record dependencies, supported OS and real execution evidence. Earlier UI tests are not a full runtime certification. |
+| Narration reliability — implemented, device test pending | Byte-for-byte burst/jitter tests, ordered tool execution while audio receive continues, speaker recovery and interruption checks pass with simulated streams. Confirm long spoken responses with the owner's actual API key, network and speaker. |
 | Task/session control | Explicit Working, Awaiting approval, Stopping and Sleeping lifecycle; accept stop/clarification/approval while rejecting unrelated new tasks during a job; verify cancellation semantics. |
 | Voice approval | Bind a spoken reply to one pending action and target; exclude assistant output and untrusted content; expiry, rejection and microphone-unavailable behavior; destructive tests only with disposable targets. Existing local confirmation remains active until this is implemented and verified. |
 | Provider adapters | Separate Gemini, Ollama, Anthropic, xAI and OpenAI settings and runtime adapters. Preserve existing Ollama settings. Real key/response/voice/tool tests per provider; no unsupported native audio capability claims. |

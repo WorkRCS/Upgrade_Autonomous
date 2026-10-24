@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from concurrent.futures import Future
+from core.narration_audio import SpeechBuffer
 
 
 def method(name, **globals_):
@@ -35,7 +36,7 @@ class ResponseStatusTests(unittest.IsolatedAsyncioTestCase):
         obj = SimpleNamespace(session=SimpleNamespace(receive=receive), _is_speaking=False,
             _response_pending=False, _dashboard=None, _interrupted=False, _pending_vision=None,
             _vision_close_pending=False, _turn_done_event=asyncio.Event(), _session_log=[],
-            _asst_name='EDITH', audio_in_queue=asyncio.Queue(),
+            _asst_name='EDITH', audio_in_queue=SpeechBuffer(),
             ui=SimpleNamespace(set_state=states.append, write_log=lambda text: None))
         with self.assertRaises(asyncio.CancelledError):
             await method('_receive_audio')(obj)
