@@ -5,6 +5,7 @@ from pathlib import Path
 
 from core.branding import prepare_agent_profiles_dir, prepare_projects_dir, prepare_uploads_dir
 from core.icons import icon_names, svg_markup
+from core.app_icon import build_edith_icon
 from core.startup_check import (
     format_install_help, missing_startup_dependencies,
 )
@@ -108,6 +109,20 @@ class BrandingAndStartupTests(unittest.TestCase):
             missing_startup_dependencies(checker),
             [("google.genai", "google-genai>=2.8.0")],
         )
+
+    def test_edith_ico_has_real_windows_icon_sizes(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed in this test environment")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "edith.ico"
+            self.assertTrue(build_edith_icon(dest))
+            with Image.open(dest) as icon:
+                self.assertEqual(icon.format, "ICO")
+                self.assertIn((16, 16), icon.ico.sizes())
+                self.assertIn((32, 32), icon.ico.sizes())
+                self.assertIn((256, 256), icon.ico.sizes())
 
     def test_fixed_icon_is_part_of_the_local_svg_set(self):
         self.assertIn("edith-app", icon_names())
