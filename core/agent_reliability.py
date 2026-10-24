@@ -51,13 +51,14 @@ _SIDE_EFFECT_TOOLS = frozenset({
     "open_app", "file_controller", "browser_control", "computer_control",
     "computer_settings", "desktop_control", "send_message", "reminder",
     "code_helper", "dev_agent", "game_updater", "save_memory",
-    "manage_monitor", "set_voice_mode", "shutdown_edith",
+    "manage_monitor", "set_voice_mode", "shutdown_edith", "close_camera",
 })
 _UNCERTAIN_PHRASES = (
     "could not verify", "not confirmed", "verification pending",
     "completion cannot be verified", "delivery is unverified",
     "not independently verified", "launch request submitted",
     "request submitted", "no delivery receipt",
+    "without a detailed result",
 )
 
 
