@@ -478,6 +478,7 @@ class DashboardServer:
         self._command_queue               = asyncio.Queue()
         self._wake_callback               = None
         self._connect_callback            = None
+        self._live_ready_callback         = None
         self._pending_keys: dict[str, float] = {}
         self._device_sessions: dict[str, dict] = {}  # device_token → {session_key}
         # Bound queued phone audio; stale speech should not lag seconds behind.
@@ -532,6 +533,10 @@ class DashboardServer:
 
     def set_connect_callback(self, fn) -> None:
         self._connect_callback = fn
+
+    def set_live_ready_callback(self, fn) -> None:
+        """Optional lightweight readiness check for remote command delivery."""
+        self._live_ready_callback = fn
 
     # ── broadcast ────────────────────────────────────────────────────────
 
@@ -697,6 +702,13 @@ class DashboardServer:
         async def command(req: Request):
             if not _auth(req):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            # Never acknowledge a new command when there is no Live consumer.
+            # Retaining the draft on the phone is safer than silently dropping it.
+            if self._live_ready_callback and not self._live_ready_callback():
+                return JSONResponse(
+                    {"ok": False, "error": "EDITH Live is reconnecting; command not queued"},
+                    status_code=503,
+                )
             body  = await req.json()
             token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
             enc   = body.get("enc", "")
