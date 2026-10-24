@@ -422,6 +422,11 @@ class HudCanvas(QWidget):
         drive = self._mic_target if listening and mic_fresh else 0.0
         self._mic_level += (drive - self._mic_level) * 0.36
         input_active = listening and mic_fresh and self._mic_level > 0.08
+        # Do not spend full-rate painting time while idle or camera view is shown.
+        frame_ms = (250 if not self.isVisible() else
+                    33 if self.speaking or input_active else 66)
+        if self._tmr.interval() != frame_ms:
+            self._tmr.setInterval(frame_ms)
         if now - self._last_t > (0.12 if self.speaking or input_active else 0.5):
             if self.speaking:
                 self._tgt_scale = random.uniform(1.06, 1.14)
