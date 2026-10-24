@@ -268,3 +268,54 @@ Gemini Live, Local LLM, desktop UI, and input/reconnection on their actual
 machine. Report measured before/after latency for comparable conditions;
 performance improvements are not guaranteed for every device or network.
 Do not start Phase 3 until the user explicitly accepts Phase 2.
+
+
+## Phase 3 — Autonomous multitasking release gate
+
+Phase 3 extends the existing EDITH UI and Gemini Live tool-response path. It does
+not replace or overwrite the Ollama/OpenAI-compatible local LLM configuration,
+the Gemini Live model, or the sensitive-action confirmation rules.
+
+### Automated checks
+
+Run the existing three automated commands in section 2 on ui/edith-interface.
+The new tests in tests/test_task_scheduler.py cover four simultaneous independent
+jobs, worker limits, priorities, dependency barriers, queued cancellation,
+failure propagation, missing prerequisites, read-only classification, and
+opt-in safe retries. These are simulated tasks, not Windows GUI tests.
+
+### Windows UI and live-operation checks
+
+1. Start EDITH on the actual Windows PC. The **existing UI** should be retained.
+   Above Activity Log, TASKS should start at zero running and zero waiting.
+   CANCEL WAITING should be disabled initially.
+2. Ask for four unrelated **read-only** lookups (four distinct web searches).
+   If Gemini Live emits multiple function calls in one batch, check Activity Log
+   for TASKS batch entries. Running actions must never exceed four. If the model
+   issues one call per turn, mark simultaneous execution **NOT TESTED** rather
+   than claiming the test passed.
+3. With a batch larger than the available workers, click CANCEL WAITING.
+   Only jobs not yet started may be cancelled. Running actions must continue;
+   the UI must not claim they were stopped or undone.
+4. Use a disposable folder. Request a listing, then creation of one specifically
+   named disposable folder, then another listing. The creation must happen only
+   after its prerequisite work; no folder may be created twice. Do not use
+   valuable files for this test.
+5. Request a harmless nonexistent-file read as a prerequisite to another task.
+   If the prerequisite fails, the dependent task must not run or report success.
+6. Check dangerous-action confirmation dialogs on disposable targets only, as
+   documented in section 7; verify that cancellation prevents execution.
+7. Re-run both TEST KEY (Gemini Live) and TEST LOCAL LLM. Check that the
+   provider, model, endpoint and API key settings have not changed.
+8. Restart EDITH, test text/voice input and optional phone dashboard. Note any
+   stuck RUNNING indicator, duplicate action or wrong-window interaction.
+
+### Phase 3 completion gate
+
+CI must pass AND the user must report PASS on relevant Windows tests. Do not
+start Phase 4 until the user explicitly approves Phase 3.
+
+Limitations: this phase can parallelize independent read-only tool calls within
+one Gemini Live batch; it does not execute four desktop mouse/keyboard operations
+concurrently, nor four independent Live conversations. When a session disconnects
+during an OS action, inspect the actual outcome before attempting it again.
