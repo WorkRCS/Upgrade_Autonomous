@@ -2358,12 +2358,14 @@ class MainWindow(QMainWindow):
     _confirm_action_sig = pyqtSignal(str, str, object)  # title, details, state
     task_status_signal = pyqtSignal(int, int, int)  # running, queued, finished
     task_detail_signal = pyqtSignal(object)  # bounded task metadata; no arguments/results
+    text_send_failed_signal = pyqtSignal(str)  # restore only when input is still empty
 
     def __init__(self, face_path: str):
         super().__init__()
         self.voice_mode_signal.connect(self.set_voice_mode_display)
         self.task_status_signal.connect(self._update_task_status)
         self.task_detail_signal.connect(self._update_task_details)
+        self.text_send_failed_signal.connect(self._restore_unsent_command)
         self.open_api_key_settings_signal.connect(self._open_api_key_settings)
         self._face_path = face_path
 
@@ -4245,20 +4247,32 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {{ background: #001F10; }}
             """)
 
+    def _restore_unsent_command(self, text: str) -> None:
+        """Never overwrite a draft the user started after the failed send."""
+        if not self._input.text().strip():
+            self._input.setText(text)
+            self._input.setFocus(Qt.FocusReason.OtherFocusReason)
+
     def _send(self):
         txt = self._input.text().strip()
-        if not txt: return
+        if not txt:
+            return
+        if not self.on_text_command:
+            self._log.append_log("NET: EDITH is not connected; command kept for retry.")
+            return
+        # The Live handler queues an asyncio coroutine thread-safely.
+        # Keep the draft if the command cannot even be scheduled.
+        try:
+            accepted = self.on_text_command(txt)
+        except Exception as exc:
+            self._log.append_log(
+                f"ERR: Could not queue text request ({type(exc).__name__})."
+            )
+            return
+        if accepted is False:
+            return
         self._input.clear()
         self._log.append_log(f"You: {txt}")
-        if self.on_text_command:
-            # The Live handler only schedules an asyncio coroutine thread-safely.
-            # Avoid spawning a new OS thread for every text message.
-            try:
-                self.on_text_command(txt)
-            except Exception as exc:
-                self._log.append_log(
-                    f"ERR: Could not queue text request ({type(exc).__name__})."
-                )
 
     def _apply_state(self, state: str):
         self.hud.state    = state
