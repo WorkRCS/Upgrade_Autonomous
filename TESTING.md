@@ -214,3 +214,57 @@ Do not execute a destructive command against the real system. Test only with a d
 For each item mark **PASS**, **FAIL**, or **NOT TESTED**. Record OS/version, Python version, app name/version, and a short sanitized error when something fails. Do not include API keys, passwords, personal message bodies, or access tokens.
 
 A full machine-level pass requires all relevant manual tests above to pass on the target OS. The automated CI suite alone is not a substitute for this machine-specific check.
+
+## 10. Phase 2 — Fast Response Engine acceptance checks
+
+**Phase 2 preserves both providers.** Gemini Live continues to handle the real-time
+voice session; the configured local agent still uses the existing `llm_provider`,
+`llm_url`, and `llm_model` settings. Do not replace one with the other.
+
+### Automated tests
+
+Run from the project root with the activated environment:
+
+```powershell
+python -m py_compile main.py ui.py core/llm_client.py core/realtime_audio.py tools/phase2_benchmark.py
+python -m unittest discover -s tests -v
+python tests/check_inline_js.py
+```
+
+**Pass:** all three commands succeed. The Phase 2 tests exercise the bounded audio
+backlog and mocked Ollama/OpenAI-compatible text agents without internet access.
+
+### On-device latency benchmark
+
+1. Start your already-configured Ollama or OpenAI-compatible local server and ensure
+   its configured model is available. Do not change `config/api_keys.json`.
+2. Run `python tools/phase2_benchmark.py --iterations 3` on the actual PC.
+   Record **first sentence** and **total** latency, without storing model output.
+   First sentence is not first token. Repeat with the same local model/hardware
+   settings when comparing improvements.
+3. Start EDITH using `python main.py`. In the current UI's Activity Log find
+   `PERF: Gemini Live session ready in ... ms`; this includes preparation
+   and the cloud session handshake, not a response to a user message.
+4. Send a short **text** query and look for
+   `PERF: Gemini Live first audio after text request: ... ms`. This measures
+   the text-send to first-audio interval, not voice-to-voice latency.
+5. Open the existing API settings and run **TEST KEY**. Confirm the live model
+   actually responds. Then use **TEST LOCAL LLM** to confirm real local inference
+   still succeeds on the configured backend.
+6. Ask a question through the microphone and verify no clipped speech, doubled
+   responses, or lost words during a normal connection.
+7. Test network recovery on a disposable/no-risk session. Briefly disconnect
+   and restore the network and verify status/reconnection are truthful. A slow
+   network may force the input queue to discard **oldest unsent audio** to limit
+   stale backlog; check whether speech becomes clipped under sustained overload.
+8. Test typing several short prompts, camera/screen use, remote/phone input
+   (if enabled), interrupt, and local agent tool calls. Confirm the UI remains
+   responsive and all existing confirmation dialogs still appear when required.
+
+### Phase 2 completion gate
+
+Mark **PASS** only when automated checks pass **and** the user has verified
+Gemini Live, Local LLM, desktop UI, and input/reconnection on their actual
+machine. Report measured before/after latency for comparable conditions;
+performance improvements are not guaranteed for every device or network.
+Do not start Phase 3 until the user explicitly accepts Phase 2.
