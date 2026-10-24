@@ -4480,9 +4480,36 @@ class EdithUI:
         self._app.setStyle("Fusion")
         self._app.setApplicationName("EDITH")
         self._app.setWindowIcon(svg_icon("edith-app", C.PRI))
+        self._closed = threading.Event()
         self._win = MainWindow(face_path)
+        # The Live/audio thread can outlive the QWidget during Qt shutdown.
+        # Mark both normal app exit and direct QWidget destruction.
+        self._app.aboutToQuit.connect(self._mark_closed)
+        self._win.destroyed.connect(self._mark_closed)
         self._win.show()
         self.root = _RootShim(self._app)
+
+    def _mark_closed(self, *_args) -> None:
+        """Prevent background callbacks from addressing destroyed Qt objects."""
+        self._closed.set()
+
+    @property
+    def closed(self) -> bool:
+        return self._closed.is_set()
+
+    def _emit_if_open(self, signal_name: str, *args) -> bool:
+        """Safely publish from worker threads across a concurrent Qt teardown."""
+        if self._closed.is_set():
+            return False
+        try:
+            getattr(self._win, signal_name).emit(*args)
+        except RuntimeError as exc:
+            # A QWidget may be deleted after the check, before signal.emit().
+            if "wrapped C/C++ object" in str(exc) and "deleted" in str(exc):
+                self._closed.set()
+                return False
+            raise
+        return True
 
     @property
     def muted(self) -> bool:
@@ -4533,22 +4560,25 @@ class EdithUI:
         self._win.notify_phone_connected()
 
     def set_state(self, state: str):
-        self._win._state_sig.emit(state)
+        self._emit_if_open("_state_sig", state)
 
     def show_input_level(self, level: float, source: str = "PC") -> None:
         """Display captured input intensity; safe to call from audio threads."""
-        self._win._mic_level_sig.emit(level, source)
+        self._emit_if_open("_mic_level_sig", level, source)
 
     def write_log(self, text: str):
-        self._win._log_sig.emit(text)
+        self._emit_if_open("_log_sig", text)
 
-    def wait_for_api_key(self):
-        while not self._win._ready:
+    def wait_for_api_key(self) -> bool:
+        while not self.closed:
+            if self._win._ready:
+                return True
             time.sleep(0.1)
+        return False
 
     def show_content(self, title: str, text: str):
         """Thread-safe: display content in the panel below the HUD."""
-        self._win._content_sig.emit(title[:48], text[:4000])
+        self._emit_if_open("_content_sig", title[:48], text[:4000])
 
     def confirm_sensitive_action(self, title: str, details: str, timeout: float = 180.0) -> bool:
         """Ask the user through the Qt GUI; timeout/cancellation never authorizes the action."""
@@ -4563,12 +4593,14 @@ class EdithUI:
 
     def prompt_reconfig(self):
         """Thread-safe: show the API key setup overlay (e.g. after an auth error)."""
+        if self.closed:
+            return
         self._win._ready = False
-        self._win._reconfig_sig.emit()
+        self._emit_if_open("_reconfig_sig")
 
     def show_camera_frame(self, img_bytes: bytes):
         """Thread-safe: show a webcam frame in the small overlay (screen captures)."""
-        self._win._camera_sig.emit(img_bytes)
+        self._emit_if_open("_camera_sig", img_bytes)
 
     def start_camera_stream(self) -> None:
         """Thread-safe: start live camera feed in the full HUD area."""
