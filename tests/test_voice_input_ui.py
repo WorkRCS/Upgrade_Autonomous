@@ -60,7 +60,7 @@ class VoiceHudWiringTests(unittest.TestCase):
         self.assertIn('LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"', self.main)
         self.assertIn("enqueue_latest_audio(self.out_queue, chunk)", self.main)
         self.assertIn("self._tmr.start(33)", self.ui)
-        self.assertIn("self.speaking = (state == \"SPEAKING\")", self.ui)
+        self.assertIn("self.hud.speaking = (state == \"SPEAKING\")", self.ui)
 
 
 if __name__ == "__main__":
