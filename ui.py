@@ -2481,6 +2481,7 @@ class MainWindow(QMainWindow):
 
         # Quick-access drawer (floating overlay, built after central widget layout is done)
         self._quick_drawer = self._build_quick_drawer()
+        self._migrate_legacy_autostart()
         self._update_autostart_btn(self._check_autostart())
         from memory.config_manager import get_brief_enabled as _gbe
         self._update_brief_btn(_gbe())
@@ -3680,26 +3681,79 @@ class MainWindow(QMainWindow):
 
     # ── Auto-start ──────────────────────────────────────────────────────────────
 
-    def _check_autostart(self) -> bool:
-        """Returns True if auto-start is currently registered on this OS."""
+    def _migrate_legacy_autostart(self) -> None:
+        """Rename only auto-start entries verified as belonging to this install.
+
+        Do not delete an unrelated application merely because of its old name.
+        EDITH continues to use the identical command when migrating an entry.
+        """
+        script = str(Path(__file__).resolve().parent / "main.py")
         try:
             if _OS == "Windows":
                 import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ)
-                try:
-                    winreg.QueryValueEx(key, "JARVIS_AI")
-                    return True
-                except FileNotFoundError:
-                    return False
-                finally:
-                    winreg.CloseKey(key)
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Run",
+                    0, winreg.KEY_READ | winreg.KEY_SET_VALUE,
+                ) as reg:
+                    try:
+                        command, _ = winreg.QueryValueEx(reg, "JARVIS_AI")
+                    except FileNotFoundError:
+                        return
+                    if script.lower() not in str(command).lower():
+                        return
+                    try:
+                        winreg.QueryValueEx(reg, "EDITH")
+                    except FileNotFoundError:
+                        winreg.SetValueEx(reg, "EDITH", 0, winreg.REG_SZ, command)
+                    winreg.DeleteValue(reg, "JARVIS_AI")
             elif _OS == "Darwin":
-                return (Path.home() / "Library" / "LaunchAgents"
-                        / "com.jarvis.assistant.plist").exists()
+                root = Path.home() / "Library" / "LaunchAgents"
+                old = root / "com.jarvis.assistant.plist"
+                new = root / "app.edith.assistant.plist"
+                if old.is_file():
+                    content = old.read_text(encoding="utf-8")
+                    if script in content:
+                        if not new.exists():
+                            new.write_text(
+                                content.replace("local.aiassistant.desktop", "app.edith.assistant"),
+                                encoding="utf-8",
+                            )
+                        old.unlink()
             else:
-                return (Path.home() / ".config" / "autostart" / "jarvis.desktop").exists()
-        except Exception:
+                root = Path.home() / ".config" / "autostart"
+                old = root / "jarvis.desktop"
+                new = root / "edith.desktop"
+                if old.is_file():
+                    content = old.read_text(encoding="utf-8")
+                    if script in content:
+                        if not new.exists():
+                            new.write_text(
+                                content.replace("Name=JARVIS", "Name=EDITH")
+                                       .replace("Name=Jarvis", "Name=EDITH"),
+                                encoding="utf-8",
+                            )
+                        old.unlink()
+        except OSError as exc:
+            print(f"[EDITH] Auto-start migration skipped: {type(exc).__name__}")
+
+    def _check_autostart(self) -> bool:
+        """Report EDITH auto-start registration; legacy entries migrate above."""
+        try:
+            if _OS == "Windows":
+                import winreg
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Run",
+                    0, winreg.KEY_READ,
+                ) as reg:
+                    winreg.QueryValueEx(reg, "EDITH")
+                    return True
+            if _OS == "Darwin":
+                return (Path.home() / "Library" / "LaunchAgents"
+                        / "app.edith.assistant.plist").exists()
+            return (Path.home() / ".config" / "autostart" / "edith.desktop").exists()
+        except (FileNotFoundError, OSError):
             return False
 
     def _toggle_autostart(self):
@@ -3708,20 +3762,24 @@ class MainWindow(QMainWindow):
             script = str(Path(__file__).resolve().parent / "main.py")
             if _OS == "Windows":
                 import winreg
-                reg = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
-                if currently_on:
-                    winreg.DeleteValue(reg, "JARVIS_AI")
-                else:
-                    pythonw = Path(sys.executable).parent / "pythonw.exe"
-                    exe = str(pythonw if pythonw.exists() else sys.executable)
-                    winreg.SetValueEx(reg, "JARVIS_AI", 0, winreg.REG_SZ,
-                                      f'"{exe}" "{script}"')
-                winreg.CloseKey(reg)
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Run",
+                    0, winreg.KEY_READ | winreg.KEY_SET_VALUE,
+                ) as reg:
+                    if currently_on:
+                        winreg.DeleteValue(reg, "EDITH")
+                    else:
+                        pythonw = Path(sys.executable).parent / "pythonw.exe"
+                        exe = str(pythonw if pythonw.exists() else sys.executable)
+                        winreg.SetValueEx(
+                            reg, "EDITH", 0, winreg.REG_SZ,
+                            f'"{exe}" "{script}"',
+                        )
             elif _OS == "Darwin":
                 plist_dir = Path.home() / "Library" / "LaunchAgents"
                 plist_dir.mkdir(parents=True, exist_ok=True)
-                plist = plist_dir / "com.jarvis.assistant.plist"
+                plist = plist_dir / "app.edith.assistant.plist"
                 if currently_on:
                     plist.unlink(missing_ok=True)
                 else:
@@ -3736,28 +3794,30 @@ class MainWindow(QMainWindow):
                         f'    <string>{script}</string>\n'
                         '  </array>\n'
                         '  <key>RunAtLoad</key><true/>\n'
-                        '</dict></plist>\n'
+                        '</dict></plist>\n',
+                        encoding="utf-8",
                     )
             else:
                 desk_dir = Path.home() / ".config" / "autostart"
                 desk_dir.mkdir(parents=True, exist_ok=True)
-                desk = desk_dir / "jarvis.desktop"
+                desk = desk_dir / "edith.desktop"
                 if currently_on:
                     desk.unlink(missing_ok=True)
                 else:
                     desk.write_text(
                         "[Desktop Entry]\n"
-                        f"Name={self._display_name}\n"
+                        "Name=EDITH\n"
                         f"Exec={sys.executable} {script}\n"
                         "Type=Application\nTerminal=false\n"
-                        "X-GNOME-Autostart-enabled=true\n"
+                        "X-GNOME-Autostart-enabled=true\n",
+                        encoding="utf-8",
                     )
-            enabled = not currently_on
-            self._update_autostart_btn(enabled)
+            self._update_autostart_btn(not currently_on)
             self._log.append_log(
-                f"SYS: Auto-start {'enabled' if enabled else 'disabled'}.")
-        except Exception as e:
-            self._log.append_log(f"ERR: Auto-start failed — {e}")
+                f"SYS: EDITH auto-start {'disabled' if currently_on else 'enabled'}."
+            )
+        except Exception as exc:
+            self._log.append_log(f"ERR: Auto-start failed — {type(exc).__name__}: {exc}")
 
     def _update_autostart_btn(self, enabled: bool):
         if not hasattr(self, '_autostart_btn'):
