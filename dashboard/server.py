@@ -480,7 +480,8 @@ class DashboardServer:
         self._connect_callback            = None
         self._pending_keys: dict[str, float] = {}
         self._device_sessions: dict[str, dict] = {}  # device_token → {session_key}
-        self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
+        # Bound queued phone audio; stale speech should not lag seconds behind.
+        self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=24)
         self._uploads_dir                 = _make_uploads_dir()
         self._login_html                  = _read("login.html")
         self._app_html                    = _read("app.html")
@@ -734,12 +735,24 @@ class DashboardServer:
             try:
                 while True:
                     data = await websocket.receive_bytes()
+                    # PCM16 frames only. Reject malformed or oversized packets
+                    # without disturbing microphone input from other devices.
+                    if not data or len(data) % 2 or len(data) > 65536:
+                        continue
+                    chunk = {"data": data, "mime_type": "audio/pcm"}
                     try:
-                        self._phone_audio_queue.put_nowait(
-                            {"data": data, "mime_type": "audio/pcm"}
-                        )
+                        self._phone_audio_queue.put_nowait(chunk)
                     except asyncio.QueueFull:
-                        pass  # drop frame rather than block
+                        # Prefer the newest audio; never deliver seconds-old
+                        # speech after a slow network recovers.
+                        try:
+                            self._phone_audio_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        try:
+                            self._phone_audio_queue.put_nowait(chunk)
+                        except asyncio.QueueFull:
+                            pass
             except WebSocketDisconnect:
                 pass
             finally:
