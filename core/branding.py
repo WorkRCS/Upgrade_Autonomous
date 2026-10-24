@@ -22,32 +22,48 @@ def _collision_free_path(target: Path) -> Path:
     raise OSError(f"No safe free name for {target.name}")
 
 
-def migrate_legacy_uploads(parent: Path) -> Path:
-    """Migrate our former upload directory safely, preserving all contents.
-
-    A same-volume folder rename is preferred. If EDITH Uploads already exists,
-    move individual entries with collision-free names. On any filesystem error
-    retain the legacy directory and its remaining files for manual recovery.
-    """
-    target = parent / UPLOAD_FOLDER_NAME
-    legacy = parent / _LEGACY_UPLOAD_FOLDER_NAME
+def migrate_named_directory(parent: Path, old_name: str, new_name: str) -> Path:
+    """Migrate EDITH-owned legacy content while avoiding overwrites and symlinks."""
+    target = parent / new_name
+    legacy = parent / old_name
     if legacy.is_dir() and not legacy.is_symlink():
         if not target.exists() and not any(p.is_symlink() for p in legacy.iterdir()):
             legacy.rename(target)
         else:
             target.mkdir(parents=True, exist_ok=True)
             if target.is_symlink() or not target.is_dir():
-                raise OSError("EDITH uploads target is not a regular directory")
+                raise OSError("Target is not a regular directory")
             for entry in legacy.iterdir():
                 if entry.is_symlink():
-                    continue  # Never follow or move links to unknown user data
+                    continue
                 entry.rename(_collision_free_path(target / entry.name))
             try:
-                legacy.rmdir()  # Succeeds only if migration is complete
+                legacy.rmdir()
             except OSError:
                 pass
     target.mkdir(parents=True, exist_ok=True)
     return target
+
+
+def migrate_legacy_uploads(parent: Path) -> Path:
+    """Move old uploads into EDITH Uploads without overwriting user files."""
+    return migrate_named_directory(
+        parent, _LEGACY_UPLOAD_FOLDER_NAME, UPLOAD_FOLDER_NAME
+    )
+
+
+def prepare_agent_profiles_dir(home: Path | None = None) -> Path:
+    """Keep existing browser sign-ins while switching to EDITH profile names."""
+    home = home or Path.home()
+    return migrate_named_directory(home, ".jarvis_profiles", ".edith_profiles")
+
+
+def prepare_projects_dir(home: Path | None = None) -> Path:
+    """Retain generated projects when upgrading to the EDITH product name."""
+    home = home or Path.home()
+    desktop = home / "Desktop"
+    desktop.mkdir(parents=True, exist_ok=True)
+    return migrate_named_directory(desktop, "JarvisProjects", "EDITH Projects")
 
 
 def prepare_uploads_dir(home: Path | None = None, base_dir: Path | None = None) -> Path:
