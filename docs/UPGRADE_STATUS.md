@@ -72,4 +72,11 @@ generated desktop-code and code-file paths: every such command gets an exact
 confirmation, streams output, records a redacted receipt and honors timeout or
 interrupt. Media/FFmpeg and other independent subprocess paths still require
 the later tool-by-tool migration. See [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)
-for the ordered completion ledger. No UI redesign or video asset replacement is included.
+for the ordered completion ledger.
+
+The Step 8 dispatcher layer now applies backend `tool_tier` floors to legacy
+tools. Tier 2 and Tier 3 calls cannot be authorized by model-supplied flags:
+the local dialog approves a redacted argument preview, the broker re-checks
+the floor, and a dispatcher-owned context is propagated to controlled worker
+threads. Native OS elevation and independent legacy subprocesses are still
+explicitly pending. No UI redesign or video asset replacement is included.

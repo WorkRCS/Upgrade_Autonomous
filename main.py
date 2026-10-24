@@ -83,6 +83,8 @@ from memory.config_manager     import get_brief_enabled
 from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
+from edith.platform.audit      import redact
+from edith.platform.permissions import ActionCancelled, PermissionDenied, tool_tier
 from core.realtime_audio      import enqueue_latest_audio
 from core.narration_audio     import SpeechBuffer, SpeechPlayer
 from core.live_audio import response_pcm
@@ -1147,6 +1149,7 @@ class EdithLive:
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
+        approval_scope = None
         # Internal foreground-target fields are dispatcher-owned, never model-authorized.
         args.pop("_confirmation_window_target", None)
         args.pop("_confirmed_window_target", None)
@@ -1158,7 +1161,19 @@ class EdithLive:
 
         # A model-provided "confirmed" field never grants approval. The user must
         # approve the exact sensitive operation in EDITH's local UI on this turn.
+        backend_tier = tool_tier(name, args)
         confirmation_reason = confirmation_requirement(name, args)
+        if backend_tier >= 2 and not confirmation_reason:
+            # This is the backend floor for legacy tools that do not yet have a
+            # specialized target preview.  The model cannot satisfy it with a
+            # `confirmed` argument; only the local dispatcher can approve it.
+            preview = json.dumps(redact(args), ensure_ascii=False, indent=2, default=str)
+            if len(preview) > 6000:
+                preview = preview[:6000] + "\n[Preview truncated; review the exact target before approving.]"
+            confirmation_reason = (
+                f"Tier {backend_tier} operation '{name}' requires local approval.\n\n"
+                f"Arguments to review:\n{preview}"
+            )
         close_confirmation = bool(
             confirmation_reason and name == "computer_settings"
             and (
@@ -1264,6 +1279,29 @@ class EdithLive:
                 )
 
             self.ui.write_log(f"ACTIVITY CONFIRMED: {activity_label}")
+            try:
+                # Enforce the same floor in the backend broker after the local
+                # dialog.  `preapproved` is an internal call-site fact, never a
+                # model-controlled argument.
+                EXECUTION.broker.authorize(
+                    name, args, minimum=backend_tier, preapproved=True
+                )
+            except (PermissionDenied, ActionCancelled) as exc:
+                result = f"Cancelled by user; no action was executed. ({exc})"
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label}")
+                return types.FunctionResponse(
+                    id=fc.id, name=name, response={"result": result}
+                )
+            # Pass only dispatcher-owned approval context into controlled worker
+            # threads.  This prevents shell/code paths from opening a second
+            # dialog while preserving the backend broker check.
+            approved_ops = {name}
+            if name in {"shell_execute", "code_helper", "dev_agent", "desktop_control", "file_processor"}:
+                approved_ops.add("shell")
+            approval_scope = EXECUTION.broker.approved_context(*approved_ops)
+            approval_scope.__enter__()
             if args.get("_confirmation_window_target"):
                 args["_confirmed_window_target"] = args.pop("_confirmation_window_target")
             # computer_settings has its own guard for power actions; set this
@@ -1470,6 +1508,8 @@ class EdithLive:
             traceback.print_exc()
             self.speak_error(name, e)
 
+        if approval_scope is not None:
+            approval_scope.__exit__(None, None, None)
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 

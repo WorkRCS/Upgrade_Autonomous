@@ -1,6 +1,7 @@
 """Backend-owned tiers and cancellation; UI cannot grant itself approval."""
 from __future__ import annotations
 import contextvars
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 import re
@@ -15,6 +16,7 @@ class ExecutionContext:
     generation: int
 
 CURRENT = contextvars.ContextVar('edith_execution_context', default=None)
+_APPROVED_OPERATIONS = contextvars.ContextVar('edith_approved_operations', default=frozenset())
 _CRITICAL = re.compile(r'(?i)(\bsudo\b|\brunas\b|\bshutdown\b|\breboot\b|\bsystemctl\s+(?:poweroff|reboot|suspend)|\b(?:diskpart|mkfs|format)\b|\breg(?:\.exe)?\s+(?:add|delete|import)|(?:Set|New|Remove)-ItemProperty|HKEY_|/etc/|/System/|Start-Process[^\n]*-Verb\s+RunAs)')
 
 def operation_tier(operation, arguments=None):
@@ -41,6 +43,10 @@ def tool_tier(name, args):
         return 0 if name != 'close_camera' else 1
     if name == 'platform_system':
         return operation_tier(str(args.get('operation','')), args.get('arguments') or {})
+    if name == 'shell_execute':
+        return operation_tier('shell', args)
+    if name == 'shutdown_edith':
+        return 3
     if name == 'file_controller':
         if action in {'list','read','find','info','largest','disk_usage'}: return 0
         if action in {'create','create_folder','create_folders','mkdir'}: return 1
@@ -76,6 +82,23 @@ class PermissionBroker:
         if ctx and ctx.generation != self.generation:
             raise ActionCancelled('Interrupted by the user; action not started')
 
+    @contextmanager
+    def approved_context(self, *operations):
+        """Carry one dispatcher approval into a worker thread without trusting model args.
+
+        ``asyncio.to_thread`` copies context variables, so a confirmation obtained by
+        the dispatcher can satisfy the same backend broker inside a controlled tool.
+        The token is reset by the caller after the tool returns; a model-provided
+        ``confirmed`` field never populates this context.
+        """
+        current = set(_APPROVED_OPERATIONS.get())
+        current.update(str(op) for op in operations)
+        token = _APPROVED_OPERATIONS.set(frozenset(current))
+        try:
+            yield token
+        finally:
+            _APPROVED_OPERATIONS.reset(token)
+
     def tier(self, operation, arguments, minimum=None):
         floor = operation_tier(operation, arguments) if minimum is None else int(minimum)
         try:
@@ -84,15 +107,18 @@ class PermissionBroker:
             configured = floor
         return max(floor, min(3, configured))
 
-    def authorize(self, operation, arguments, *, minimum=None):
+    def authorize(self, operation, arguments, *, minimum=None, preapproved=False):
         self.check_cancelled()
         tier = self.tier(operation, arguments, minimum)
         if tier >= 2:
             # Never trust an argument such as confirmed=true or autoApprove.
-            if self.confirmer is None:
+            context_approved = operation in _APPROVED_OPERATIONS.get()
+            if not preapproved and not context_approved and self.confirmer is None:
                 raise PermissionDenied('Local confirmation is required before this action')
-            preview = json.dumps(arguments, ensure_ascii=False, indent=2, default=str)
-            if not self.confirmer(f'Tier {tier} · Review {operation}', preview):
-                raise PermissionDenied('Cancelled or expired; nothing was executed')
+            if not preapproved and not context_approved:
+                from .audit import redact
+                preview = json.dumps(redact(arguments), ensure_ascii=False, indent=2, default=str)
+                if not self.confirmer(f'Tier {tier} · Review {operation}', preview):
+                    raise PermissionDenied('Cancelled or expired; nothing was executed')
             self.check_cancelled()
         return tier
