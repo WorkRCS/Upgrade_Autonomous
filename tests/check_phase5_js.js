@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync(
   path.join(__dirname, '..', 'dashboard', 'static', 'app.html'), 'utf8'
 );
-const scripts = [...html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)];
+const scripts = html.split('<script>').slice(1).map(s => s.split('</script>')[0]);
 const code = scripts.map(x => x[1]).find(x => x.includes('const _authToken'));
 assert.ok(code, 'phone dashboard inline script not found');
 
