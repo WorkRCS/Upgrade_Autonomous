@@ -459,17 +459,8 @@ def _process_code(path: Path, action: str, params: dict, speak=None) -> str:
 
     if action == "run":
         if ext == "py":
-            try:
-                result = subprocess.run(
-                    ["python", str(path)],
-                    capture_output=True, text=True, timeout=30
-                )
-                out = result.stdout or result.stderr
-                return f"Output:\n{out[:2000]}" if out else "No output."
-            except subprocess.TimeoutExpired:
-                return "Execution timed out (30s)."
-            except Exception as e:
-                return f"Run failed: {e}"
+            from actions.code_helper import _run_file
+            return _run_file(path,[],30)
         return f"Direct execution not supported for .{ext} files."
 
     if action == "info":

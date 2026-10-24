@@ -170,10 +170,11 @@ def confirmation_requirement(tool_name: str, parameters: dict | None = None) -> 
                     "Confirm only if the target and every operation shown above are intended."
                 )
 
-    if name == "code_helper" and action in {"run", "execute"}:
-        return "Run the requested code in the local environment? Review the target project and possible side effects before approving."
+    # Coding execution confirms the exact source/argv in core.execution, including
+    # build and file_processor paths. Do not show a duplicate generic prompt here.
 
     return None
 
 
 __all__ = ["confirmation_requirement"]
+

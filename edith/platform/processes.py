@@ -79,15 +79,21 @@ def shell_argv(command, system=None):
     if not shell: raise FileNotFoundError('No supported shell is installed')
     return [shell, '-c', command]
 
-def run_streamed(argv, *, cwd=None, timeout=60, on_output=None, broker=None, output_limit=200000):
+def run_streamed(argv, *, cwd=None, timeout=60, on_output=None, broker=None, output_limit=200000, input_data=None):
     if broker: broker.check_cancelled()
     ctx = CURRENT.get()
     kwargs = dict(cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                  bufsize=0)
+                  stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL, bufsize=0)
     if platform.system() != 'Windows': kwargs['start_new_session'] = True
     process = _ORIGINAL_POPEN(argv, **kwargs)
     process._edith_owns_group = platform.system() != 'Windows'
     REGISTRY.add(process)
+    if input_data is not None:
+        def send_input():
+            try:process.stdin.write(input_data);process.stdin.flush()
+            except (OSError, BrokenPipeError):pass
+            finally:process.stdin.close()
+        threading.Thread(target=send_input,daemon=True).start()
     events = queue.Queue(maxsize=256)
     def read(pipe, name):
         decoder = codecs.getincrementaldecoder("utf-8")("replace")

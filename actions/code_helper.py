@@ -1,4 +1,6 @@
 import subprocess
+import shlex
+from core.execution import SERVICE, format_execution, stopped
 import sys
 import json
 import re
@@ -217,26 +219,10 @@ def _run_file(path: Path, args: list, timeout: int) -> str:
     if not interp:
         return f"No interpreter for {path.suffix}."
 
-    try:
-        result = subprocess.run(
-            interp + [str(path)] + (args or []),
-            capture_output=True, text=True,
-            encoding="utf-8", errors="replace",
-            timeout=timeout, cwd=str(path.parent)
-        )
-        output = result.stdout.strip()
-        error  = result.stderr.strip()
-        parts  = []
-        if output: parts.append(f"Output:\n{output}")
-        if error:  parts.append(f"Stderr:\n{error}")
-        return "\n\n".join(parts) if parts else "Executed with no output."
-
-    except subprocess.TimeoutExpired:
-        return f"Timed out after {timeout}s."
-    except FileNotFoundError:
-        return f"Interpreter not found: {interp[0]}."
-    except Exception as e:
-        return f"Execution error: {e}"
+    if isinstance(args,str):args=shlex.split(args)
+    path=path.expanduser().resolve()
+    receipt=SERVICE.run_argv(interp+[str(path)]+list(args or []),cwd=path.parent,timeout=timeout,source_path=path)
+    return format_execution(receipt)
 
 
 def _build(description, language, output_path, args, timeout, speak=None, player=None) -> str:
@@ -263,6 +249,9 @@ def _build(description, language, output_path, args, timeout, speak=None, player
             player.write_log(f"[Code] Attempt {attempt}...")
 
         last_output = _run_file(path, args, timeout)
+
+        if stopped(last_output):
+            return last_output
 
         if not _has_error(last_output):
             msg = (

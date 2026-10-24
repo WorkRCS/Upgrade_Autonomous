@@ -86,6 +86,7 @@ from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
 from core.narration_audio     import SpeechBuffer, SpeechPlayer
 from core.live_audio import response_pcm
+from core.execution import SERVICE as EXECUTION, configure_execution, run_code_tool
 from core.audio_meter          import pcm16_level
 from core.product_identity import PRODUCT_IDENTITY
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
@@ -149,6 +150,13 @@ def _clean_transcript(text: str) -> str:
     return text.strip()
 
 TOOL_DECLARATIONS = [
+    {
+        "name":"shell_execute",
+        "description":"Execute an exact command in the current OS shell with working directory, streamed stdout/stderr, exit code and timeout. Requires local confirmation for every command; cancellation stops the owned process. Do not treat a timeout as success.",
+        "parameters":{"type":"OBJECT","properties":{
+            "command":{"type":"STRING"},"cwd":{"type":"STRING"},
+            "timeout":{"type":"NUMBER","description":"Timeout in seconds; default 60"}},"required":["command"]}
+    },
     {
         "name": "set_voice_mode",
         "description": (
@@ -653,6 +661,7 @@ class EdithLive:
     def __init__(self, ui: EdithUI):
         _load_action_modules()
         self.ui             = ui
+        configure_execution(ui)
         self._asst_name     = "EDITH"
         try:
             _saved_cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
@@ -967,6 +976,7 @@ class EdithLive:
         """Cancel queued narration and signal the native writer to abort playback."""
         self._interrupted = True
         self._response_pending = False
+        EXECUTION.cancel()  # Stop tracked code/shell processes; whole-agent cancellation is a later gate.
         q = self.audio_in_queue
         if q is not None:
             q.clear()  # Thread-safe; also aborts queued device playback on the writer thread.
@@ -1364,15 +1374,21 @@ class EdithLive:
                 result = r or "Done."
 
             elif name == "desktop_control":
-                r = await loop.run_in_executor(None, lambda: desktop_control(parameters=args, player=self.ui))
+                r = await run_code_tool(desktop_control, parameters=args, player=self.ui)
                 result = r or "Done."
 
+            elif name == "shell_execute":
+                r = await run_code_tool(EXECUTION.shell, command=args.get("command", ""),
+                    cwd=args.get("cwd"), timeout=args.get("timeout", 60))
+                from core.execution import format_execution
+                result = format_execution(r)
+
             elif name == "code_helper":
-                r = await loop.run_in_executor(None, lambda: code_helper(parameters=args, player=self.ui, speak=self.speak))
+                r = await run_code_tool(code_helper, parameters=args, player=self.ui, speak=self.speak)
                 result = r or "Done."
 
             elif name == "dev_agent":
-                r = await loop.run_in_executor(None, lambda: dev_agent(parameters=args, player=self.ui, speak=self.speak))
+                r = await run_code_tool(dev_agent, parameters=args, player=self.ui, speak=self.speak)
                 result = r or "Done."
 
             elif name == "web_search":
@@ -1387,10 +1403,7 @@ class EdithLive:
             elif name == "file_processor":
                 if not args.get("file_path") and self.ui.current_file:
                     args["file_path"] = self.ui.current_file
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: file_processor(parameters=args, player=self.ui, speak=self.speak)
-                )
+                r = await run_code_tool(file_processor, parameters=args, player=self.ui, speak=self.speak)
                 result = r or "Done."
 
             elif name == "computer_control":

@@ -67,5 +67,9 @@ samples these on the Qt timer. Missing individual sensors remain null/N/A.
 
 Controller methods already reject unconfirmed sensitive operations, but this is
 not yet the complete legacy tool/Settings permission migration or global ESC
-integration. See [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md) for the
-ordered completion ledger. No UI redesign or video asset replacement is included.
+integration. The scoped Step 7 execution layer is now wired into shell, coding,
+generated desktop-code and code-file paths: every such command gets an exact
+confirmation, streams output, records a redacted receipt and honors timeout or
+interrupt. Media/FFmpeg and other independent subprocess paths still require
+the later tool-by-tool migration. See [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)
+for the ordered completion ledger. No UI redesign or video asset replacement is included.
