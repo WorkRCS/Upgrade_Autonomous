@@ -2,6 +2,37 @@
 
 A desktop voice assistant with real-time audio, optional screen/camera awareness, local computer controls, plugins, persistent memory, and an optional remote dashboard. It uses the existing Google Gemini Live API integration.
 
+## Professional desktop and remote workspace
+
+The desktop now places the conversation and command composer in the main workspace.
+A compact voice indicator and Activity, Files and System tabs keep diagnostics available
+without squeezing the conversation. Existing voice, model, plugin and action integrations
+continue through the `EdithUI` facade.
+
+Setup, Connections, Preferences, Plugins and Remote Access use scrollable native modal
+forms with consistent controls and persistent action footers. Preferences preview is
+reverted on cancellation; attachment removal clears the selected-file state. Sensitive
+action confirmations expire and concurrent requests are shown in order. The legacy
+YouTube URL prompt now runs through Qt on the UI thread.
+
+The phone dashboard shares the desktop visual palette, larger touch controls, accessible
+labels and reduced-motion support. Pairing and command submissions expose their pending
+state; repeated pairing clicks are guarded. Microphone startup failures restore the voice
+control, and the file picker reports the existing 500 MB per-file server limit.
+
+Run the existing test suite plus the new workspace behavior gates:
+
+```bash
+QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
+python tests/check_inline_js.py
+node tests/check_phase5_js.js
+node tests/check_workspace_js.js
+```
+
+Real microphone/camera use, OS integration and phone-browser behavior still require
+manual testing on the target devices. Earlier Phase 4 notes below describe the previous
+layout; this workspace redesign supersedes those presentation details.
+
 ## Features
 
 - Real-time voice conversation using Gemini Live API
@@ -311,3 +342,4 @@ config/                  # Local settings and generated app resources
 ## License
 
 See [LICENSE](LICENSE) for the terms that apply to this repository.
+

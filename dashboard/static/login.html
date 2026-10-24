@@ -133,6 +133,57 @@
       font-size: 12px;
       margin-bottom: 16px;
     }
+
+    /* EDITH workspace design system: shared across login and remote controls. */
+    :root {--bg:#0c111b;--surface:#141d2b;--border:#29394f;--accent:#8ab4ff;
+      --adim:#203654;--text:#eff4fc;--muted:#9baac0;--green:#64edbe;--gdim:#17392f;}
+    html,body {font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      background:var(--bg);color:var(--text);font-size:15px;}
+    header {background:#101824;padding:18px 24px;box-shadow:none;backdrop-filter:none;}
+    .logo {letter-spacing:1px;font-size:18px;}
+    .pill,.enc-badge,.url {letter-spacing:0;font-size:12px;}
+    .workspace-label {font-size:12px;color:var(--muted);border-left:1px solid var(--border);padding-left:14px;}
+    main {max-width:1000px;padding:28px 24px;gap:18px;scroll-behavior:smooth;}
+    .msg {box-shadow:none;border-radius:12px;padding:16px 20px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;}
+    .msg-j {background:#141d2b;border-color:var(--border);}
+    .msg-u {background:#20324c;border-color:#3d5475;}
+    .lbl,.fc-lbl {font-size:12px;letter-spacing:0;opacity:1;font-weight:600;}
+    .msg-sys {font-size:13px;line-height:1.6;max-width:100%;}
+    .welcome {margin:auto 0;padding:36px 12px;color:var(--muted);line-height:1.8;}
+    .welcome h1 {font-size:30px;color:var(--text);font-weight:600;letter-spacing:-.8px;margin-bottom:10px;}
+    footer {background:#101824;gap:10px;padding:16px max(20px,calc((100vw - 1000px)/2));
+      padding-bottom:max(16px,env(safe-area-inset-bottom));box-shadow:none;backdrop-filter:none;}
+    #inp {border-radius:10px;background:#0a101a;min-height:46px;font:inherit;padding:12px 14px;}
+    .btn,.btn-attach,#mic-btn {font:inherit;letter-spacing:0;font-weight:600;border-radius:9px;
+      min-height:46px;min-width:46px;padding:11px 15px;box-shadow:none;}
+    .btn-send {background:var(--accent);color:#0a101a;}
+    .btn:disabled,#mic-btn:disabled {opacity:.5;cursor:wait;transform:none;}
+    button:focus-visible,input:focus-visible,a:focus-visible {outline:2px solid var(--accent);outline-offset:4px;}
+    .btn-attach {color:var(--text);}
+    #toast {border-radius:10px;white-space:normal;max-width:calc(100vw - 32px);z-index:20;font-size:14px;letter-spacing:0;}
+    .msg-file {border-radius:12px;box-shadow:none;max-width:95%;}
+    .fc-name {font-size:14px;} .fc-size,.fc-status,.fc-dl {font-size:12px;letter-spacing:0;}
+    .card {background:var(--surface);border:1px solid var(--border);box-shadow:0 24px 80px #0004;
+      border-radius:20px;padding:36px;max-width:440px;width:calc(100% - 32px);}
+    .card .logo {font-size:24px;letter-spacing:2px;}
+    .sub {font-size:18px;letter-spacing:0;text-transform:none;margin-top:8px;}
+    .hint,.voice-note {color:var(--muted);font-size:14px;line-height:1.7;}
+    .field-label {display:block;text-align:left;font-size:14px;margin:24px 0 10px;}
+    .key-input {border-radius:10px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-size:28px;min-height:58px;}
+    .err {color:#f48f9d;font-size:14px;line-height:1.6;min-height:24px;}
+    .voice-note {padding:14px;background:var(--bg);border-radius:10px;}
+    .card .btn {width:100%;background:var(--accent);color:#0a101a;}
+    #voice-setup {background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;line-height:1.7;}
+    @media(max-width:600px) {
+      header {padding:14px;flex-wrap:wrap;gap:10px;} .workspace-label,.enc-badge {display:none!important;}
+      main {padding:20px 14px;} .welcome h1 {font-size:26px;}
+      footer {padding:12px;padding-bottom:max(12px,env(safe-area-inset-bottom));}
+      .msg {max-width:96%;padding:13px 15px;} .card {padding:28px 24px;}
+    }
+    @media(prefers-reduced-motion:reduce) {
+      *,*::before,*::after {animation:none!important;transition:none!important;scroll-behavior:auto!important;}
+    }
+
   </style>
 </head>
 <body>
@@ -141,18 +192,15 @@
     <div class="sub">Remote Access</div>
     <p id="reconnecting">Reconnecting…</p>
     <p class="hint">Press <strong style="color:var(--text)">Remote Control</strong> in the desktop app to get a QR code or session key.</p>
+    <label for="key" class="field-label">Access code</label>
     <div class="key-wrap">
       <input class="key-input" id="key" type="text" maxlength="6"
              autocomplete="off" autocorrect="off" spellcheck="false"
              placeholder="· · · · · ·">
     </div>
-    <div class="err" id="err"></div>
-    <button class="btn" onclick="doLogin()">CONNECT</button>
-    <p class="voice-note">
-      🎤 <strong style="color:var(--text)">Voice commands:</strong> open
-      <code>chrome://flags</code> on your phone, search
-      <code>Insecure origins treated as secure</code>, add your assistant's URL, tap Relaunch.
-    </p>
+    <div class="err" id="err" role="alert" aria-live="assertive"></div>
+    <button class="btn" id="connect-btn" onclick="doLogin()">Connect to workspace</button>
+    <p class="voice-note">For voice input, use your desktop's HTTPS address and allow microphone access. Text commands and files are also available.</p>
   </div>
 
   <script>
@@ -200,9 +248,15 @@
     });
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
+    let loginPending = false;
     async function doLogin() {
+      if (loginPending) return;
       const key = inp.value.trim();
       if (key.length < 6) { shake(); return; }
+      loginPending = true;
+      const button = document.getElementById('connect-btn');
+      button.disabled = true;
+      button.textContent = 'Connecting…';
       let data;
       try {
         const r = await fetch('/login', {
@@ -214,6 +268,10 @@
       } catch (e) {
         document.getElementById('err').textContent = 'Connection error';
         shake(); return;
+      } finally {
+        loginPending = false;
+        button.disabled = false;
+        button.textContent = 'Connect to workspace';
       }
       if (data.ok && data.token) {
         sessionStorage.setItem('jarvis_key', key);
@@ -236,3 +294,4 @@
   </script>
 </body>
 </html>
+

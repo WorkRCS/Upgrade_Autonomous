@@ -117,19 +117,24 @@ def _is_valid_youtube_url(url: str) -> bool:
 
 
 def _ask_for_url(prompt_text: str = "YouTube video URL:") -> str | None:
+    """Request a native EDITH dialog on the Qt thread, including from tool workers."""
     try:
-        import tkinter as tk
-        from tkinter import simpledialog
-
-        root = tk._default_root
-        if root is None:
-            root = tk.Tk()
-            root.withdraw()
-
-        url = simpledialog.askstring("J.A.R.V.I.S", prompt_text, parent=root)
-        return url.strip() if url else None
-    except Exception as e:
-        print(f"[YouTube] ⚠️ URL dialog failed: {e}")
+        import threading
+        from PyQt6.QtCore import QThread
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        window = getattr(app, "edith_window", None)
+        if window is None:
+            return None
+        request = {"prompt": prompt_text, "value": None, "event": threading.Event()}
+        if QThread.currentThread() == app.thread():
+            window._show_url_prompt(request)
+        else:
+            window._url_prompt_sig.emit(request)
+            request["event"].wait(181)
+        value = request["value"]
+        return value if value and _is_valid_youtube_url(value) else None
+    except (ImportError, RuntimeError):
         return None
 
 
