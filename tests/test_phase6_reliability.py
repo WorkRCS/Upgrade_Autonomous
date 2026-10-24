@@ -3,6 +3,7 @@ import asyncio
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from core.agent_reliability import (
@@ -109,7 +110,7 @@ class JournalTests(unittest.TestCase):
             recent = journal.recent(limit=30)
             self.assertEqual(len(recent), 10)
             self.assertNotIn(secret, repr(recent))
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 raw = "\n".join(str(row) for row in db.execute("SELECT * FROM tasks"))
             self.assertNotIn("message_text", raw)
             self.assertNotIn("path", raw)
@@ -123,7 +124,7 @@ class JournalTests(unittest.TestCase):
             journal.plan([(f"run-{i}", "web_search") for i in range(16)])
             for i in range(11):
                 journal.finished(f"run-{i}", "succeeded", "tool_reported", 5)
-            with sqlite3.connect(journal.path) as db:
+            with closing(sqlite3.connect(journal.path)) as db:
                 waiting = db.execute("SELECT COUNT(*) FROM tasks WHERE status='queued'").fetchone()[0]
                 complete = db.execute("SELECT COUNT(*) FROM tasks WHERE status='succeeded'").fetchone()[0]
             self.assertEqual(waiting, 5)
