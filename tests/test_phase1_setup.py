@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.branding import prepare_uploads_dir
+from core.branding import prepare_agent_profiles_dir, prepare_projects_dir, prepare_uploads_dir
 from core.icons import icon_names, svg_markup
 from core.startup_check import (
     format_install_help, missing_startup_dependencies,
@@ -64,6 +64,30 @@ class BrandingAndStartupTests(unittest.TestCase):
             path = prepare_uploads_dir(home=Path(tmp) / "empty", base_dir=base)
             self.assertEqual(path, base / "uploads")
             self.assertTrue(path.is_dir())
+
+    def test_browser_profile_and_sign_ins_survive_rename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            source = home / ".jarvis_profiles" / "chrome"
+            source.mkdir(parents=True)
+            (source / "Cookies").write_bytes(b"retained browser data")
+            target = prepare_agent_profiles_dir(home)
+            self.assertEqual(target, home / ".edith_profiles")
+            self.assertEqual((target / "chrome" / "Cookies").read_bytes(),
+                             b"retained browser data")
+
+    def test_previous_generated_projects_survive_rename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            source = home / "Desktop" / "JarvisProjects" / "sample"
+            source.mkdir(parents=True)
+            (source / "main.py").write_text("print('keep')", encoding="utf-8")
+            target = prepare_projects_dir(home)
+            self.assertEqual(target, home / "Desktop" / "EDITH Projects")
+            self.assertEqual(
+                (target / "sample" / "main.py").read_text(encoding="utf-8"),
+                "print('keep')",
+            )
 
     def test_missing_dependencies_provide_exact_install_command(self):
         missing = missing_startup_dependencies(
