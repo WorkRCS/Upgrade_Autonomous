@@ -353,6 +353,11 @@ class HudCanvas(QWidget):
         self.speaking = False
         self.state    = "INITIALISING"
         self._assistant_name = assistant_name
+        # UI-only audio feedback: zero when no captured PCM arrives recently.
+        self._mic_target = 0.0
+        self._mic_level = 0.0
+        self._mic_last_packet = 0.0
+        self._mic_source = "PC"
 
         self._tick       = 0
         self._scale      = 1.0
@@ -373,7 +378,22 @@ class HudCanvas(QWidget):
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
-        self._tmr.start(16)
+        # 30 FPS gives smooth HUD feedback without repainting the full canvas
+        # 60 times per second on battery-powered or low-end machines.
+        self._tmr.start(33)
+
+    def set_input_level(self, level: float, source: str = "PC") -> None:
+        """Qt-thread-only; values arrive through MainWindow's queued signal."""
+        if self.muted or self.speaking:
+            return
+        self._mic_target = max(0.0, min(1.0, float(level)))
+        self._mic_last_packet = time.monotonic()
+        self._mic_source = "PHONE" if source == "PHONE" else "PC"
+
+    def clear_input_level(self) -> None:
+        self._mic_target = 0.0
+        self._mic_level = 0.0
+        self._mic_last_packet = 0.0
 
     def _load_face(self, path: str):
         try:
@@ -394,20 +414,29 @@ class HudCanvas(QWidget):
 
     def _step(self):
         self._tick += 1
-        now = time.time()
-        if now - self._last_t > (0.12 if self.speaking else 0.5):
+        now = time.monotonic()
+        mic_fresh = (now - self._mic_last_packet) < 0.65
+        listening = self.state == "LISTENING" and not self.muted and not self.speaking
+        drive = self._mic_target if listening and mic_fresh else 0.0
+        self._mic_level += (drive - self._mic_level) * 0.36
+        input_active = listening and mic_fresh and self._mic_level > 0.08
+        if now - self._last_t > (0.12 if self.speaking or input_active else 0.5):
             if self.speaking:
                 self._tgt_scale = random.uniform(1.06, 1.14)
                 self._tgt_halo  = random.uniform(145, 190)
             elif self.muted:
-                self._tgt_scale = random.uniform(0.998, 1.002)
-                self._tgt_halo  = random.uniform(15, 28)
+                self._tgt_scale = 1.0
+                self._tgt_halo  = 20.0
+            elif input_active:
+                # Real PCM intensity drives the input heartbeat, not fake noise.
+                self._tgt_scale = 1.006 + self._mic_level * 0.075
+                self._tgt_halo = 62.0 + self._mic_level * 115.0
             else:
-                self._tgt_scale = random.uniform(1.001, 1.008)
-                self._tgt_halo  = random.uniform(48, 68)
+                self._tgt_scale = 1.003
+                self._tgt_halo  = 54.0
             self._last_t = now
 
-        sp = 0.38 if self.speaking else 0.15
+        sp = 0.38 if self.speaking else (0.27 if input_active else 0.15)
         self._scale += (self._tgt_scale - self._scale) * sp
         self._halo  += (self._tgt_halo  - self._halo)  * sp
 
@@ -488,7 +517,25 @@ class HudCanvas(QWidget):
             rect = QRectF(cx - ring_r, cy - ring_r, ring_r * 2, ring_r * 2)
             p.drawEllipse(rect)
 
-        # No scanner sweeps, targeting ticks or crosshairs; keep the visual calm and legible.
+        # Short input-lit orbital accents: clearly separate user audio from
+        # the original assistant-speaking glow, without replacing the EDITH HUD.
+        mic_fresh = (time.monotonic() - self._mic_last_packet) < 0.65
+        input_live = (
+            self.state == "LISTENING" and not self.muted
+            and not self.speaking and mic_fresh
+        )
+        if input_live and self._mic_level > 0.06:
+            energy = self._mic_level
+            radius = fw * (0.335 + energy * 0.032)
+            intensity = min(235, int(75 + energy * 155))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(qcol(C.GREEN, intensity), 1.2 + energy * 3.0))
+            p.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
+            p.setPen(QPen(qcol(C.GREEN, int(intensity * 0.65)), 2.0))
+            for angle in (int(self._tick * 2.8) % 360, (180 + int(self._tick * 2.8)) % 360):
+                arc_r = radius * 1.15
+                p.drawArc(QRectF(cx - arc_r, cy - arc_r, arc_r * 2, arc_r * 2),
+                          angle * 16, 32 * 16)
 
         # face
         if self._face_px:
@@ -522,17 +569,23 @@ class HudCanvas(QWidget):
             p.drawEllipse(QPointF(pt[0], pt[1]), 2.5, 2.5)
 
         # status text (Decluttered: removed dot symbols)
-        sy = cy + fw * 0.40
+        # Reserve room for the meter even in a short/split HUD.
+        sy = min(cy + fw * 0.36, H - 66)
         if self.muted:
-            txt, col = "MUTED",     qcol(C.MUTED_C)
+            txt, col = "MIC MUTED", qcol(C.MUTED_C)
         elif self.speaking:
-            txt, col = "SPEAKING",  qcol(C.ACC)
+            txt, col = "SPEAKING", qcol(C.ACC)
         elif self.state == "THINKING":
-            txt, col = "THINKING",   qcol(C.ACC2)
+            txt, col = "THINKING", qcol(C.ACC2)
         elif self.state == "PROCESSING":
             txt, col = "PROCESSING", qcol(C.ACC2)
         elif self.state == "LISTENING":
-            txt, col = "LISTENING",  qcol(C.GREEN)
+            if input_live and self._mic_level > 0.11:
+                txt, col = f"{self._mic_source} AUDIO DETECTED", qcol(C.GREEN)
+            elif input_live:
+                txt, col = f"{self._mic_source} MIC RECEIVING", qcol(C.GREEN)
+            else:
+                txt, col = "WAITING FOR MIC AUDIO", qcol(C.ACC2)
         else:
             txt, col = self.state, qcol(C.PRI)
 
@@ -541,7 +594,7 @@ class HudCanvas(QWidget):
         p.drawText(QRectF(0, sy, W, 26), Qt.AlignmentFlag.AlignCenter, txt)
 
         # waveform
-        wy = sy + 30
+        wy = sy + 28
         N, bw = 36, 8
         wx0 = (W - N * bw) / 2
         for i in range(N):
@@ -549,11 +602,19 @@ class HudCanvas(QWidget):
                 hgt, cl = 2, qcol(C.MUTED_C)
             elif self.speaking:
                 hgt = random.randint(3, 20)
-                cl  = qcol(C.PRI) if hgt > 12 else qcol(C.PRI_DIM)
+                cl = qcol(C.PRI) if hgt > 12 else qcol(C.PRI_DIM)
+            elif input_live:
+                # Height follows captured PCM amplitude; the oscillation merely
+                # distributes that intensity into a readable sci-fi meter.
+                shape = 0.32 + 0.68 * abs(
+                    math.sin(i * 0.61 + self._tick * 0.19)
+                    * math.cos(i * 0.21 - self._tick * 0.10)
+                )
+                hgt = int(3 + 28 * self._mic_level * shape)
+                cl = qcol(C.GREEN if hgt > 8 else C.PRI_DIM)
             else:
-                hgt = int(3 + 2 * math.sin(self._tick * 0.09 + i * 0.6))
-                cl  = qcol(C.BORDER_B)
-            p.fillRect(QRectF(wx0 + i * bw, wy + 20 - hgt, bw - 1, hgt), cl)
+                hgt, cl = 2, qcol(C.BORDER_B)
+            p.fillRect(QRectF(wx0 + i * bw, wy + 20 - hgt, bw - 2, hgt), cl)
 
 class MetricBar(QWidget):
 
@@ -2349,6 +2410,7 @@ class MainWindow(QMainWindow):
     open_api_key_settings_signal = pyqtSignal()
     _log_sig        = pyqtSignal(str)
     _state_sig      = pyqtSignal(str)
+    _mic_level_sig  = pyqtSignal(float, str)  # thread-safe captured PCM activity
     _content_sig    = pyqtSignal(str, str)   # (title, text) — thread-safe content display
     _reconfig_sig   = pyqtSignal()           # trigger setup overlay from any thread
     _camera_sig     = pyqtSignal(bytes)      # show camera frame preview (small overlay)
@@ -2522,6 +2584,7 @@ class MainWindow(QMainWindow):
 
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
+        self._mic_level_sig.connect(self._on_mic_level)
         self._content_sig.connect(self._show_content)
         self._reconfig_sig.connect(self._show_setup)
         self._camera_sig.connect(self._show_camera_frame)
@@ -4216,6 +4279,7 @@ class MainWindow(QMainWindow):
     def _toggle_mute(self):
         self._muted = not self._muted
         self.hud.muted = self._muted
+        self.hud.clear_input_level()
         self._style_mute_btn()
         if self._muted:
             self._apply_state("MUTED")
@@ -4274,9 +4338,15 @@ class MainWindow(QMainWindow):
         self._input.clear()
         self._log.append_log(f"You: {txt}")
 
+    def _on_mic_level(self, level: float, source: str) -> None:
+        if not self._muted and self.hud.state == "LISTENING":
+            self.hud.set_input_level(level, source)
+
     def _apply_state(self, state: str):
-        self.hud.state    = state
+        self.hud.state = state
         self.hud.speaking = (state == "SPEAKING")
+        if state != "LISTENING":
+            self.hud.clear_input_level()
 
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
@@ -4396,6 +4466,10 @@ class EdithUI:
 
     def set_state(self, state: str):
         self._win._state_sig.emit(state)
+
+    def show_input_level(self, level: float, source: str = "PC") -> None:
+        """Display captured input intensity; safe to call from audio threads."""
+        self._win._mic_level_sig.emit(level, source)
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
