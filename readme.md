@@ -137,6 +137,43 @@ GitHub CI exercises an offscreen Qt smoke test. A real Windows display,
 microphone and dual-provider test remain required: see
 [Phase 4 in TESTING.md](TESTING.md).
 
+## Phase 5 — Cross-device and network resilience
+
+The **existing** EDITH desktop HUD and phone remote dashboard remain in place.
+The phone dashboard now reconnects its control WebSocket with bounded
+exponential backoff (starting at 1 second, capped at 30 seconds), a ping/pong
+heartbeat, and visible connection state. Reconnect does not clear the phone
+conversation or replay old remote commands. Server event IDs let the phone skip
+already displayed history after reconnect, while older clients can still read
+the unchanged message types and authentication protocol.
+
+**Command safety on unstable links:** phone text is kept until the HTTP server
+confirms it accepted the command. If the acknowledgement is lost, EDITH reports
+the delivery as **unconfirmed**; it never auto-resends potentially destructive
+requests. When Gemini Live is disconnected, the phone gets an explicit
+"not queued" response and retains the draft. Remote text commands still use
+the existing Gemini Live session; local LLM agent routing and keys are unchanged.
+
+**Audio on slower devices:** the phone mic keeps its original 16 kHz PCM16
+format but bounds WebSocket buffering. Stale buffered audio is skipped instead
+of building a long voice delay. The server also bounds its input queue and
+prefers recent samples. Under severe congestion this can lose speech, so check
+the transcribed request before allowing any important action.
+
+**Pairing and compatibility:** a transient network failure does not erase a
+saved paired-device token. Only an explicit authentication rejection removes
+it. Original session keys, encryption salt, server routes and internal browser
+storage identifiers are retained for compatibility; no legacy product name is
+shown as the app name or shortcut. Remote access requires a reachable device
+on a trusted local network or a separately configured trusted private tunnel.
+EDITH does **not** magically connect across unrelated public internet networks,
+and the dashboard should not be exposed directly to the open internet.
+
+Phase 5 automated tests exercise authorized HTTP session probes, control
+WebSocket ping/pong, replay IDs and offline Live command rejection, in addition
+to the existing Python, UI and JavaScript suites. See the Phase 5 manual gate
+in [TESTING.md](TESTING.md) for real phone/network verification.
+
 ## Full end-to-end testing
 
 Use [TESTING.md](TESTING.md) for the complete local validation sequence, including automated checks, Gemini/voice/UI smoke tests, app discovery, YouTube channel search, Activity Log privacy, and safe confirmation-dialog tests using disposable files and harmless apps. Machine-level GUI behavior still needs to be verified on the target OS.
