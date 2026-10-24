@@ -58,9 +58,12 @@ class TaskResult:
 class TaskReportedFailure(Exception):
     """A tool returned an unsuccessful result that should block dependents."""
 
-    def __init__(self, response: Any):
+    def __init__(self, response: Any, status: str = "failed"):
+        if status not in {"failed", "cancelled"}:
+            raise ValueError("Reported failure status must be failed or cancelled")
         super().__init__("Tool reported an unsuccessful or cancelled operation")
         self.response = response
+        self.status = status
 
 
 class TaskScheduler:
@@ -139,9 +142,10 @@ class TaskScheduler:
                         and attempts <= spec.retry_limit):
                     await asyncio.sleep(min(0.25 * attempts, 1.0))
                     continue
-                self._update(spec.task_id, "failed")
+                status = exc.status if isinstance(exc, TaskReportedFailure) else "failed"
+                self._update(spec.task_id, status)
                 return TaskResult(
-                    spec.task_id, "failed",
+                    spec.task_id, status,
                     value=exc.response if isinstance(exc, TaskReportedFailure) else None,
                     error=f"{type(exc).__name__}: {exc}",
                     attempts=attempts,
