@@ -20,7 +20,7 @@ else:
 
 from PyQt6.QtCore import (
     QEasingCurve, QMimeData, QObject, QPointF, QRectF, QSize, Qt,
-    QTimer, QUrl, pyqtSignal,
+    QSettings, QTimer, QUrl, pyqtSignal,
 )
 from PyQt6.QtGui import (
     QBrush, QColor, QConicalGradient, QDragEnterEvent, QDropEvent, QFont,
@@ -644,12 +644,17 @@ class LogWidget(QTextEdit):
         self._pos     = 0
         self._tag     = "sys"
         self._ai_name_lc = "edith"   # updated when assistant name changes
+        self._reduced_motion = False
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
         self._sig.connect(self._enqueue)
 
     def append_log(self, text: str):
         self._sig.emit(text)
+
+    def set_reduced_motion(self, enabled: bool) -> None:
+        """Display new log entries promptly, without the typewriter effect."""
+        self._reduced_motion = bool(enabled)
 
     def _enqueue(self, text: str):
         self._queue.append(text)
@@ -676,7 +681,7 @@ class LogWidget(QTextEdit):
 
     def _step(self):
         if self._pos < len(self._text):
-            step = 160 if len(self._queue) > 5 else 24
+            step = len(self._text) if self._reduced_motion else (160 if len(self._queue) > 5 else 24)
             chunk = self._text[self._pos:self._pos + step]
             cur = self.textCursor()
             fmt = cur.charFormat()
@@ -700,7 +705,7 @@ class LogWidget(QTextEdit):
             cur.insertText("\n")
             self.setTextCursor(cur)
             self.ensureCursorVisible()
-            QTimer.singleShot(20, self._next)
+            QTimer.singleShot(0 if self._reduced_motion else 20, self._next)
 
 _FILE_ICONS = {
     "image":   ("file-image",        "#A5B4FC"),
@@ -2401,6 +2406,10 @@ class MainWindow(QMainWindow):
         self._voice_mode = str(_cfg.get("voice_mode") or "female").lower()
         if self._voice_mode not in {"female", "male"}:
             self._voice_mode = "female"
+        # Store display-only preferences separately; do not touch cloud/local LLM keys.
+        self._reduced_motion = QSettings("EDITH", "EDITH").value(
+            "reduced_log_motion", False, type=bool
+        )
         self._voice_female_btn: QPushButton | None = None
         self._voice_male_btn: QPushButton | None = None
 
@@ -2484,6 +2493,7 @@ class MainWindow(QMainWindow):
         body.addWidget(self._center_split, stretch=5)
 
         self._right_panel = self._build_right_panel()
+        self._log.set_reduced_motion(self._reduced_motion)
         body.addWidget(self._right_panel, stretch=0)
         self._adjust_side_panels()
 
@@ -3452,6 +3462,20 @@ class MainWindow(QMainWindow):
         cust_btn.clicked.connect(self._open_customize)
         lay.addWidget(cust_btn)
 
+        self._motion_btn = QPushButton()
+        self._motion_btn.setCheckable(True)
+        self._motion_btn.setChecked(self._reduced_motion)
+        self._motion_btn.setText(
+            "REDUCED LOG ANIMATION: ON" if self._reduced_motion
+            else "REDUCED LOG ANIMATION: OFF"
+        )
+        self._motion_btn.setFixedHeight(28)
+        self._motion_btn.setFont(QFont(FONT_MAIN, 8))
+        self._motion_btn.setStyleSheet(_BTN_STYLE_DIM)
+        self._motion_btn.setToolTip("Reduce visual motion and show activity lines immediately")
+        self._motion_btn.toggled.connect(self._toggle_reduced_motion)
+        lay.addWidget(self._motion_btn)
+
         key_btn = QPushButton("KEY  GEMINI API KEY")
         key_btn.setFixedHeight(30)
         key_btn.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
@@ -3499,6 +3523,15 @@ class MainWindow(QMainWindow):
 
         w.adjustSize()
         return w
+
+    def _toggle_reduced_motion(self, enabled: bool) -> None:
+        self._reduced_motion = bool(enabled)
+        self._log.set_reduced_motion(self._reduced_motion)
+        self._motion_btn.setText(
+            "REDUCED LOG ANIMATION: ON" if enabled
+            else "REDUCED LOG ANIMATION: OFF"
+        )
+        QSettings("EDITH", "EDITH").setValue("reduced_log_motion", enabled)
 
     def _request_voice_mode(self, mode: str):
         mode = (mode or "").strip().lower()
