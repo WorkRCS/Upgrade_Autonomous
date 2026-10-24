@@ -80,6 +80,7 @@ from core.plugin_loader        import discover_plugins
 from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
+from core.audio_meter          import pcm16_level
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
 from core.task_view           import compact_task_view
 from core.agent_reliability import (
@@ -664,6 +665,7 @@ class EdithLive:
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
+        self._last_mic_meter_at   = 0.0  # throttle UI samples; no audio history retained
         self._pending_vision       = None    # (img_bytes, mime_type, question, angle) to inject after tool response
         self._vision_cam_active    = False   # True if camera was opened for vision → auto-close after response
         self._vision_close_pending = False   # True after vision injected; next turn_complete closes camera
@@ -1462,6 +1464,10 @@ class EdithLive:
             msg = await self.out_queue.get()
             await self.session.send_realtime_input(media=msg)
 
+    def _publish_mic_activity(self, data: bytes, source: str = "PC") -> None:
+        """Feed UI-only audio intensity; never save raw input or alter Gemini data."""
+        self.ui.show_input_level(pcm16_level(data), source)
+
     async def _listen_audio(self):
         print("[Assistant] 🎤 Mic started")
         loop = asyncio.get_event_loop()
@@ -1471,6 +1477,15 @@ class EdithLive:
                 edith_speaking = self._is_speaking
             if not edith_speaking and not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
+                # Meter computation happens on the asyncio thread, not inside
+                # PortAudio's real-time callback. Limit GUI signal traffic to
+                # about 10 Hz even when the audio stream sends faster chunks.
+                now = time.monotonic()
+                if now - self._last_mic_meter_at >= 0.10:
+                    self._last_mic_meter_at = now
+                    loop.call_soon_threadsafe(
+                        self._publish_mic_activity, data, "PC"
+                    )
                 # Never enqueue directly from PortAudio's callback thread.
                 # Keep only ~2 seconds of microphone backlog when the network slows.
                 loop.call_soon_threadsafe(
@@ -1945,6 +1960,12 @@ class EdithLive:
                 speaking = self._is_speaking
             if not speaking and not self.ui.muted:
                 enqueue_latest_audio(self.out_queue, chunk)
+                now = time.monotonic()
+                if now - self._last_mic_meter_at >= 0.10:
+                    self._last_mic_meter_at = now
+                    data = chunk.get("data", b"")
+                    if isinstance(data, (bytes, bytearray, memoryview)):
+                        self._publish_mic_activity(data, "PHONE")
 
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
