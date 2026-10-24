@@ -2346,10 +2346,12 @@ class MainWindow(QMainWindow):
     _cam_frame_sig  = pyqtSignal(bytes)      # live camera frame → HUD area
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
     _confirm_action_sig = pyqtSignal(str, str, object)  # title, details, state
+    task_status_signal = pyqtSignal(int, int, int)  # running, queued, finished
 
     def __init__(self, face_path: str):
         super().__init__()
         self.voice_mode_signal.connect(self.set_voice_mode_display)
+        self.task_status_signal.connect(self._update_task_status)
         self.open_api_key_settings_signal.connect(self._open_api_key_settings)
         self._face_path = face_path
 
@@ -2382,6 +2384,7 @@ class MainWindow(QMainWindow):
         self.on_api_key_saved  = None   # callback after a tested key is saved
         self.on_voice_mode_clicked = None
         self.on_interrupt      = None   # callable: () -> None — stop speech
+        self.on_cancel_queued_tasks = None  # queue-only cancellation callback
         self.get_plugins       = None   # callable: () -> list[dict], set by EdithLive
         self._muted            = False
         self._current_file: str | None = None
@@ -3128,6 +3131,17 @@ class MainWindow(QMainWindow):
             lay.addWidget(lbl)
 
         return w
+    def _update_task_status(self, running: int, queued: int, completed: int) -> None:
+        self._task_status_lbl.setText(f"TASKS  {running} RUN  ·  {queued} WAIT")
+        self._task_status_lbl.setToolTip(
+            f"Running: {running} | Queued: {queued} | Completed: {completed}"
+        )
+        self._cancel_queued_btn.setEnabled(queued > 0)
+
+    def _request_cancel_queued(self) -> None:
+        if self.on_cancel_queued_tasks:
+            self.on_cancel_queued_tasks()
+
     def _build_right_panel(self) -> QWidget:
         w = QWidget()
         w.setFixedWidth(_RIGHT_W)
@@ -3141,6 +3155,37 @@ class MainWindow(QMainWindow):
             l.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
             l.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
             return l
+
+        # Keep the existing EDITH panel; task state is a compact extension,
+        # not a new dashboard or a redesign of the current application.
+        tasks_row = QHBoxLayout()
+        tasks_row.setSpacing(6)
+        self._task_status_lbl = QLabel("TASKS  0 RUN  ·  0 WAIT")
+        self._task_status_lbl.setFont(QFont(FONT_MONO, 8, QFont.Weight.Bold))
+        self._task_status_lbl.setStyleSheet(
+            f"color: {C.PRI}; background: transparent;"
+        )
+        self._task_status_lbl.setToolTip("Live tasks: running and queued")
+        tasks_row.addWidget(self._task_status_lbl, stretch=1)
+
+        self._cancel_queued_btn = QPushButton("CANCEL WAITING")
+        self._cancel_queued_btn.setFixedHeight(25)
+        self._cancel_queued_btn.setFont(QFont(FONT_MAIN, 7, QFont.Weight.Bold))
+        self._cancel_queued_btn.setStyleSheet(f"""
+            QPushButton {{
+                color: {C.TEXT_MED}; background: {C.PANEL2};
+                border: 1px solid {C.BORDER}; border-radius: 4px;
+            }}
+            QPushButton:hover {{ color: {C.PRI}; border-color: {C.PRI}; }}
+            QPushButton:disabled {{ color: {C.TEXT_DIM}; }}
+        """)
+        self._cancel_queued_btn.setToolTip(
+            "Cancel only tasks that have not started. Running OS actions continue."
+        )
+        self._cancel_queued_btn.setEnabled(False)
+        self._cancel_queued_btn.clicked.connect(self._request_cancel_queued)
+        tasks_row.addWidget(self._cancel_queued_btn)
+        lay.addLayout(tasks_row)
 
         lay.addWidget(_sec("ACTIVITY LOG"))
         self._log = LogWidget()
