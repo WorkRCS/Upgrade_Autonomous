@@ -4059,11 +4059,15 @@ class MainWindow(QMainWindow):
         self._overlay = ov
 
     def _on_setup_done(self, key: str, os_name: str):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        API_FILE.write_text(
-            json.dumps({"gemini_api_key": key, "os_system": os_name}, indent=4),
-            encoding="utf-8",
-        )
+        from memory.config_manager import save_initial_setup
+        try:
+            save_initial_setup(key, os_name)
+        except (OSError, ValueError, TypeError) as exc:
+            self._log.append_log(
+                f"ERR: EDITH setup could not safely save config ({type(exc).__name__}). "
+                "Existing API and local LLM settings were not replaced."
+            )
+            return
         self._ready = True
         if self._overlay:
             self._overlay.hide()
