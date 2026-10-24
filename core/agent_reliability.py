@@ -12,6 +12,7 @@ import json
 import re
 import secrets
 import sqlite3
+import sys
 import time
 from collections import OrderedDict
 from contextlib import closing
@@ -130,7 +131,8 @@ class AgentTaskJournal:
         if not 10 <= retention <= 10000:
             raise ValueError("retention must be between 10 and 10000")
         self.path = Path(path) if path is not None else (
-            Path(__file__).resolve().parents[1] / "memory" / "agent_history.sqlite3"
+            (Path(sys.executable).parent if getattr(sys, "frozen", False)
+             else Path(__file__).resolve().parents[1]) / "memory" / "agent_history.sqlite3"
         )
         self.retention = retention
         self.available = self._initialize()
