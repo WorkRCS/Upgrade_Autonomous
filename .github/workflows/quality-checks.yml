@@ -37,3 +37,5 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check inline dashboard JavaScript
         run: python tests/check_inline_js.py
+      - name: Test remote phone reconnect and command safety in Node
+        run: node tests/check_phase5_js.js
