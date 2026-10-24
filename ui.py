@@ -366,7 +366,7 @@ class HudCanvas(QWidget):
         self._tgt_scale  = 1.0
         self._halo       = 55.0
         self._tgt_halo   = 55.0
-        self._last_t     = time.time()
+        self._last_t     = time.monotonic()
         self._scan       = 0.0
         self._scan2      = 180.0
         self._rings      = [0.0, 120.0, 240.0]
