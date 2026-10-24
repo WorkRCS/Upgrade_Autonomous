@@ -3650,7 +3650,12 @@ class MainWindow(QMainWindow):
                 f"Briefly tell the user you can see the file '{p.name}' "
                 f"({size}) has been uploaded and ask what they'd like to do with it."
             )
-            threading.Thread(target=self.on_text_command, args=(msg,), daemon=True).start()
+            try:
+                self.on_text_command(msg)
+            except Exception as exc:
+                self._log.append_log(
+                    f"ERR: Could not queue uploaded-file request ({type(exc).__name__})."
+                )
 
     def notify_phone_connected(self) -> None:
         if self._remote_overlay and self._remote_overlay.isVisible():
@@ -3983,7 +3988,12 @@ class MainWindow(QMainWindow):
 
     def _on_clipboard_action(self, cmd: str):
         if self.on_text_command:
-            threading.Thread(target=self.on_text_command, args=(cmd,), daemon=True).start()
+            try:
+                self.on_text_command(cmd)
+            except Exception as exc:
+                self._log.append_log(
+                    f"ERR: Could not queue clipboard request ({type(exc).__name__})."
+                )
 
     # ────────────────────────────────────────────────────────────────────────────
 
