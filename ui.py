@@ -3163,6 +3163,49 @@ class MainWindow(QMainWindow):
         if self.on_cancel_queued_tasks:
             self.on_cancel_queued_tasks()
 
+    def _toggle_task_details(self, checked: bool) -> None:
+        """Show current tasks without covering the original EDITH HUD."""
+        self._task_details_panel.setVisible(bool(checked))
+        self._task_details_btn.setToolTip(
+            "Hide recent tasks" if checked else "Show running, queued and recent tasks"
+        )
+
+    def _update_task_details(self, summary: dict) -> None:
+        """Render bounded scheduler metadata on the Qt UI thread."""
+        tasks = summary.get("visible", [])
+        total = int(summary.get("total", 0))
+        self._task_details_btn.setEnabled(total > 0)
+        if not total:
+            self._task_details_btn.setChecked(False)
+            self._task_details_panel.hide()
+        colors = {
+            "running": C.GREEN, "queued": C.ACC2,
+            "succeeded": C.GREEN, "failed": C.RED, "blocked": C.RED,
+            "interrupted": C.ACC2, "cancelled": C.TEXT_DIM,
+        }
+        for index, (row, name, status) in enumerate(self._task_detail_rows):
+            if index >= len(tasks):
+                row.hide()
+                continue
+            item = tasks[index]
+            full = str(item.get("label") or "Task")
+            name.setText(name.fontMetrics().elidedText(
+                full, Qt.TextElideMode.ElideRight,
+                max(115, self._right_panel.width() - 144),
+            ))
+            name.setToolTip(full)
+            state = str(item.get("status") or "queued").lower()
+            status.setText(state.upper())
+            status.setStyleSheet(
+                f"color: {colors.get(state, C.TEXT_MED)}; background: transparent;"
+            )
+            row.show()
+        remaining = max(0, total - len(tasks))
+        self._task_more_lbl.setText(
+            f"+ {remaining} more task(s) in this session" if remaining else ""
+        )
+        self._task_more_lbl.setVisible(remaining > 0)
+
     def _build_right_panel(self) -> QWidget:
         w = QWidget()
         w.setFixedWidth(_RIGHT_W)
@@ -3206,7 +3249,67 @@ class MainWindow(QMainWindow):
         self._cancel_queued_btn.setEnabled(False)
         self._cancel_queued_btn.clicked.connect(self._request_cancel_queued)
         tasks_row.addWidget(self._cancel_queued_btn)
+
+        self._task_details_btn = QPushButton()
+        self._task_details_btn.setIcon(svg_icon("chevron-down", C.TEXT_MED))
+        self._task_details_btn.setIconSize(QSize(13, 13))
+        self._task_details_btn.setFixedSize(26, 25)
+        self._task_details_btn.setCheckable(True)
+        self._task_details_btn.setEnabled(False)
+        self._task_details_btn.setToolTip("Show running, queued and recent tasks")
+        self._task_details_btn.setAccessibleName("Show or hide EDITH task details")
+        self._task_details_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL2}; border: 1px solid {C.BORDER};
+                border-radius: 4px;
+            }}
+            QPushButton:checked {{ border-color: {C.PRI_DIM}; }}
+            QPushButton:hover {{ border-color: {C.PRI}; }}
+            QPushButton:disabled {{ border-color: {C.BORDER}; }}
+        """)
+        self._task_details_btn.toggled.connect(self._toggle_task_details)
+        tasks_row.addWidget(self._task_details_btn)
         lay.addLayout(tasks_row)
+
+        self._task_details_panel = QFrame()
+        self._task_details_panel.setObjectName("TaskDetailsPanel")
+        self._task_details_panel.setStyleSheet(f"""
+            QFrame#TaskDetailsPanel {{
+                background: {C.PANEL}; border: 1px solid {C.BORDER};
+                border-radius: 5px;
+            }}
+        """)
+        detail_lay = QVBoxLayout(self._task_details_panel)
+        detail_lay.setContentsMargins(8, 5, 8, 5)
+        detail_lay.setSpacing(3)
+        self._task_detail_rows = []
+        for _ in range(4):
+            item_row = QWidget()
+            item_lay = QHBoxLayout(item_row)
+            item_lay.setContentsMargins(0, 0, 0, 0)
+            item_lay.setSpacing(5)
+            task_name = QLabel("")
+            task_name.setTextFormat(Qt.TextFormat.PlainText)
+            task_name.setFont(QFont(FONT_MAIN, 8))
+            task_name.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+            item_lay.addWidget(task_name, stretch=1)
+            task_state = QLabel("")
+            task_state.setFont(QFont(FONT_MONO, 7, QFont.Weight.Bold))
+            task_state.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+            task_state.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            item_lay.addWidget(task_state)
+            detail_lay.addWidget(item_row)
+            item_row.hide()
+            self._task_detail_rows.append((item_row, task_name, task_state))
+        self._task_more_lbl = QLabel("")
+        self._task_more_lbl.setFont(QFont(FONT_MAIN, 7))
+        self._task_more_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        self._task_more_lbl.hide()
+        detail_lay.addWidget(self._task_more_lbl)
+        self._task_details_panel.hide()
+        lay.addWidget(self._task_details_panel)
 
         lay.addWidget(_sec("ACTIVITY LOG"))
         self._log = LogWidget()
