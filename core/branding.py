@@ -55,7 +55,16 @@ def migrate_legacy_uploads(parent: Path) -> Path:
 def prepare_agent_profiles_dir(home: Path | None = None) -> Path:
     """Keep existing browser sign-ins while switching to EDITH profile names."""
     home = home or Path.home()
-    return migrate_named_directory(home, ".jarvis_profiles", ".edith_profiles")
+    try:
+        return migrate_named_directory(home, ".jarvis_profiles", ".edith_profiles")
+    except OSError as exc:
+        legacy = home / ".jarvis_profiles"
+        if legacy.is_dir():
+            # A browser may have locked its current profile. Do not lose sign-ins
+            # or break browser automation merely to force a directory rename.
+            print(f"[EDITH] Browser profile migration deferred: {type(exc).__name__}")
+            return legacy
+        raise
 
 
 def prepare_projects_dir(home: Path | None = None) -> Path:
