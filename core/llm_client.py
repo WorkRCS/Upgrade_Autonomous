@@ -334,39 +334,48 @@ def call_llm_text(
     model:   str | None = None,
     timeout: int = 120,
 ) -> str:
-    """
-    Simple text-only generation (no tools).
-    Used by planner, executor, error_handler, code_helper, dev_agent.
-    """
-    url, default_model = get_llm_settings()
-    endpoint = f"{url}/api/chat"
-    m        = model or default_model
+    """Text-only generation using the configured local provider.
 
+    Explicit model overrides are supported for both Ollama and OpenAI-compatible
+    servers. The shared call_llm path handles default-model requests.
+    """
     messages: list[dict] = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    payload = {"model": m, "messages": messages, "stream": False, "keep_alive": -1, "options": {"num_predict": 600}}
+    if model is None:
+        return call_llm(messages, timeout=timeout)["content"]
 
+    url, _ = get_llm_settings()
+    provider = get_llm_provider()
+    if provider == "openai":
+        endpoint = f"{url}/v1/chat/completions"
+        payload = {"model": model, "messages": messages, "stream": False, "max_tokens": 600}
+    else:
+        endpoint = f"{url}/api/chat"
+        payload = {
+            "model": model, "messages": messages, "stream": False,
+            "keep_alive": -1, "options": {"num_predict": 600},
+        }
     try:
         resp = requests.post(endpoint, json=payload, timeout=timeout)
         resp.raise_for_status()
-        return (resp.json().get("message", {}).get("content") or "").strip()
-    except requests.exceptions.ConnectionError:
-        if ensure_ollama_running():
+        data = resp.json()
+        if provider == "openai":
+            return (data["choices"][0]["message"].get("content") or "").strip()
+        return (data.get("message", {}).get("content") or "").strip()
+    except requests.exceptions.ConnectionError as exc:
+        if provider == "ollama" and ensure_ollama_running():
             try:
                 resp = requests.post(endpoint, json=payload, timeout=timeout)
                 resp.raise_for_status()
                 return (resp.json().get("message", {}).get("content") or "").strip()
-            except Exception:
-                pass
-        raise RuntimeError(
-            f"Cannot connect to Ollama at {url}. "
-            "Make sure Ollama is installed and run: ollama serve"
-        )
-    except Exception as e:
-        raise RuntimeError(f"LLM text call failed: {e}")
+            except requests.exceptions.RequestException as retry_exc:
+                raise RuntimeError(f"LLM text call failed after Ollama restart: {retry_exc}") from retry_exc
+        raise RuntimeError(f"Cannot connect to configured {provider} LLM at {url}") from exc
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"LLM text call failed: {exc}") from exc
 
 
 def _stream_openai(
