@@ -1,0 +1,34 @@
+name: EDITH cross-platform core smoke
+
+on:
+  push:
+    branches: [ui/edith-interface]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  portable-core:
+    name: Core on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile portable and application source
+        run: python -m compileall -q main.py ui.py core/agent_reliability.py core/task_scheduler.py core/hardware_check.py tests
+      - name: Verify Windows-safe SQLite journal
+        run: python -m unittest discover -s tests -p "test_phase6_reliability.py" -v
+      - name: Verify concurrency and safe ordering
+        run: python -m unittest discover -s tests -p "test_task_scheduler.py" -v
+      - name: Verify hardware fault handling without real devices
+        run: python -m unittest discover -s tests -p "test_audio_hardware_fallback.py" -v
