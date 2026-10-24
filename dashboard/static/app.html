@@ -358,6 +358,17 @@
       }
     }
 
+    // Keep long-running phone sessions responsive on low-memory devices.
+    // Only the oldest rendered rows are discarded; server-side logs remain.
+    const _MAX_FEED_ROWS = 300;
+    function _appendFeed(row) {
+      feed.appendChild(row);
+      while (feed.children.length > _MAX_FEED_ROWS) {
+        feed.removeChild(feed.firstElementChild);
+      }
+      feed.scrollTop = feed.scrollHeight;
+    }
+
     function append(speaker, text) {
       const d = document.createElement('div');
       if (speaker === 'jarvis') {
@@ -367,14 +378,13 @@
         d.className = 'msg msg-u';
         d.innerHTML = `<div class="lbl">You</div>${esc(text)}`;
       }
-      feed.appendChild(d);
-      feed.scrollTop = feed.scrollHeight;
+      _appendFeed(d);
     }
 
     function sys(text) {
       const d = document.createElement('div');
       d.className = 'msg msg-sys'; d.textContent = text;
-      feed.appendChild(d); feed.scrollTop = feed.scrollHeight;
+      _appendFeed(d);
     }
 
     function esc(s) {
@@ -421,8 +431,7 @@
         </div>
         <div class="fc-status" id="${id}_st">0%</div>
       `;
-      feed.appendChild(card);
-      feed.scrollTop = feed.scrollHeight;
+      _appendFeed(card);
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload');
@@ -488,8 +497,7 @@
         </div>
         <div class="fc-status done">✓</div>
       `;
-      feed.appendChild(card);
-      feed.scrollTop = feed.scrollHeight;
+      _appendFeed(card);
       toast('File received on computer!');
     }
 
@@ -625,8 +633,7 @@
         '<li>Set to <strong style="color:#76D7B0">Enabled</strong> → tap <strong style="color:#dde3ed">Relaunch</strong></li>' +
         '<li>Return here and tap 🎤</li>' +
         '</ol>';
-      feed.appendChild(card);
-      feed.scrollTop = feed.scrollHeight;
+      _appendFeed(card);
       // tap to copy
       card.querySelector('#flags-url').addEventListener('click', () => {
         navigator.clipboard?.writeText(origin).then(() => toast('URL copied!')).catch(() => {});
