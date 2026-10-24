@@ -1890,9 +1890,13 @@ class EdithLive:
                         turns={"parts": [{"text": text}]},
                         turn_complete=True,
                     )
-                    self.ui.write_log(f"[Web]: {text}")
+                    self.ui.write_log("NET: Remote command delivered to Gemini Live.")
                 else:
-                    print(f"[Dashboard] Dropped command (no session): {text}")
+                    print("[Dashboard] Remote command not delivered (no Live session).")
+                    await self._dashboard.broadcast({
+                        "type": "sys",
+                        "text": "Remote command was not delivered; check EDITH before retrying.",
+                    })
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
@@ -1911,6 +1915,7 @@ class EdithLive:
             from dashboard.server import DashboardServer
             self._dashboard = DashboardServer()
             self._dashboard.set_connect_callback(self._on_phone_connected)
+            self._dashboard.set_live_ready_callback(lambda: self.session is not None)
             asyncio.create_task(self._dashboard.serve())
             # Runs for the whole lifetime, not just inside an active session
             asyncio.create_task(self._process_dashboard_commands())
