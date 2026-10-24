@@ -174,6 +174,40 @@ WebSocket ping/pong, replay IDs and offline Live command rejection, in addition
 to the existing Python, UI and JavaScript suites. See the Phase 5 manual gate
 in [TESTING.md](TESTING.md) for real phone/network verification.
 
+## Phase 6 — Smart Agent Reliability
+
+EDITH now keeps the same native UI, Gemini Live voice path, and existing local
+Ollama/OpenAI-compatible LLM configuration. Phase 6 improves the **execution
+protocol** rather than replacing an AI model or adding a redesigned dashboard.
+
+- **Tool-call replay protection:** duplicate IDs for side-effecting actions
+  (messaging, file writes, GUI controls, etc.) are suppressed within a running
+  EDITH process. A conflicting ID is also rejected. Requests without an ID
+  cannot be deduplicated reliably. An intentional new command with a new ID is
+  not blocked just because it resembles an earlier one.
+- **Truthful receipts:** the tool response carries `execution_verification`
+  metadata. A handler reporting success is **not** independent confirmation
+  of an external effect. For side effects EDITH marks follow-up observation
+  as required; missing or ambiguous receipts block subsequent dependent
+  operations. Cancelled actions remain distinguishable from actual failures.
+- **Recovery without unsafe replay:** a local SQLite task journal records
+  status and duration, never original prompts, arguments, filenames, paths,
+  API secrets, messages or raw tool responses. When EDITH restarts, queued
+  or running tasks from the previous process are marked **interrupted**;
+  they are **not resumed automatically**. Task history is capped at 300
+  terminal entries and can be queried through the read-only `task_history`
+  tool. The journal is saved under `memory/agent_history.sqlite3`, which is
+  ignored by Git.
+- **Graceful storage failure:** if the journal cannot be created, EDITH reports
+  that task history is unavailable while normal actions continue. Remote
+  authentication and cloud/local API settings are unchanged.
+
+These improvements do not prove that every action has been visually verified.
+Use independent screen/OS checks before claiming a high-impact outcome, and
+never re-send an external operation merely because its acknowledgment was lost.
+See [Phase 6 testing in TESTING.md](TESTING.md). Windows release approval
+still requires the user's on-device verification.
+
 ## Full end-to-end testing
 
 Use [TESTING.md](TESTING.md) for the complete local validation sequence, including automated checks, Gemini/voice/UI smoke tests, app discovery, YouTube channel search, Activity Log privacy, and safe confirmation-dialog tests using disposable files and harmless apps. Machine-level GUI behavior still needs to be verified on the target OS.
