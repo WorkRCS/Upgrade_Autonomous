@@ -34,6 +34,42 @@ def save_api_keys(gemini_api_key: str) -> None:
         encoding="utf-8"
     )
 
+
+def save_initial_setup(gemini_api_key: str, os_system: str) -> None:
+    """Persist first-run setup without erasing existing cloud/local settings.
+
+    Reject unreadable or non-object config instead of replacing a file that may
+    contain credentials, model choices, voice options, and plugin preferences.
+    """
+    import tempfile
+
+    ensure_config_dir()
+    if CONFIG_FILE.exists():
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Existing EDITH config must be a JSON object")
+    else:
+        data = {}
+
+    data["gemini_api_key"] = gemini_api_key.strip()
+    data["os_system"] = os_system
+    data["assistant_name"] = "EDITH"
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=CONFIG_FILE.parent,
+            prefix=".edith-setup-", suffix=".tmp", delete=False,
+        ) as stream:
+            temp_path = Path(stream.name)
+            json.dump(data, stream, indent=4)
+            stream.write("\n")
+        temp_path.replace(CONFIG_FILE)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
 def load_api_keys() -> dict:
     if not CONFIG_FILE.exists():
         return {}
