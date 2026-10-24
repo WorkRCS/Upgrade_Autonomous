@@ -473,6 +473,8 @@ class DashboardServer:
         self._aes_cache:  dict[str, bytes]= {}   # session_key → AES bytes
         self._clients: set[WebSocket]     = set()
         self._history: list[dict]         = []
+        self._event_sequence              = 0
+        self._event_namespace             = secrets.token_hex(8)
         self._command_queue               = asyncio.Queue()
         self._wake_callback               = None
         self._connect_callback            = None
@@ -533,13 +535,21 @@ class DashboardServer:
     # ── broadcast ────────────────────────────────────────────────────────
 
     async def broadcast(self, msg: dict) -> None:
-        self._history.append(msg)
+        """Assign stable per-process IDs so reconnecting phones can skip replayed events.
+
+        Retain the existing message shape and encrypted command protocol.
+        A slow/stalled phone must not block the dashboard indefinitely.
+        """
+        self._event_sequence += 1
+        entry = dict(msg)
+        entry["event_id"] = f"{self._event_namespace}:{self._event_sequence}"
+        self._history.append(entry)
         if len(self._history) > 300:
             self._history = self._history[-300:]
         dead: set[WebSocket] = set()
         for ws in list(self._clients):
             try:
-                await ws.send_json(msg)
+                await asyncio.wait_for(ws.send_json(entry), timeout=2.0)
             except Exception:
                 dead.add(ws)
         self._clients -= dead
@@ -674,6 +684,13 @@ class DashboardServer:
             count = len(self._device_sessions)
             self._device_sessions.clear()
             return JSONResponse({"ok": True, "revoked": count})
+
+        @app.get("/api/session")
+        async def session_status(req: Request):
+            """Minimal authorized session probe for remote reconnect diagnostics."""
+            if not _auth(req):
+                return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+            return JSONResponse({"ok": True})
 
         @app.post("/api/command")
         async def command(req: Request):
@@ -834,6 +851,11 @@ class DashboardServer:
             try:
                 while True:
                     data = await websocket.receive_json()
+                    if not isinstance(data, dict):
+                        continue
+                    if data.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
+                        continue
                     if data.get("type") == "command":
                         enc = data.get("enc", "")
                         t   = self._decrypt(tok, enc) if enc else (data.get("text") or "").strip()
