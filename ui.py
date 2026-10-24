@@ -615,6 +615,8 @@ class LogWidget(QTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setReadOnly(True)
+        # Bound on-screen history so a long agent session cannot fill GUI memory.
+        self.document().setMaximumBlockCount(700)
         self.setFont(QFont(FONT_MONO, 9))
         self.setStyleSheet(f"""
             QTextEdit {{
@@ -668,11 +670,14 @@ class LogWidget(QTextEdit):
         elif tl.startswith("file:"):                             self._tag = "file"
         elif "err" in tl:                                        self._tag = "err"
         else:                                                    self._tag = "sys"
-        self._tmr.start(6)
+        # Preserve the existing typewriter style while avoiding per-character
+        # repaints when several concurrent tasks finish close together.
+        self._tmr.start(16)
 
     def _step(self):
         if self._pos < len(self._text):
-            ch  = self._text[self._pos]
+            step = 160 if len(self._queue) > 5 else 24
+            chunk = self._text[self._pos:self._pos + step]
             cur = self.textCursor()
             fmt = cur.charFormat()
             col = {
@@ -684,10 +689,10 @@ class LogWidget(QTextEdit):
             }.get(self._tag, qcol(C.TEXT))
             fmt.setForeground(QBrush(col))
             cur.movePosition(cur.MoveOperation.End)
-            cur.insertText(ch, fmt)
+            cur.insertText(chunk, fmt)
             self.setTextCursor(cur)
             self.ensureCursorVisible()
-            self._pos += 1
+            self._pos += len(chunk)
         else:
             self._tmr.stop()
             cur = self.textCursor()
@@ -2347,11 +2352,13 @@ class MainWindow(QMainWindow):
     _clipboard_sig  = pyqtSignal(str)        # clipboard text changed (thread-safe)
     _confirm_action_sig = pyqtSignal(str, str, object)  # title, details, state
     task_status_signal = pyqtSignal(int, int, int)  # running, queued, finished
+    task_detail_signal = pyqtSignal(object)  # bounded task metadata; no arguments/results
 
     def __init__(self, face_path: str):
         super().__init__()
         self.voice_mode_signal.connect(self.set_voice_mode_display)
         self.task_status_signal.connect(self._update_task_status)
+        self.task_detail_signal.connect(self._update_task_details)
         self.open_api_key_settings_signal.connect(self._open_api_key_settings)
         self._face_path = face_path
 
@@ -2478,6 +2485,7 @@ class MainWindow(QMainWindow):
 
         self._right_panel = self._build_right_panel()
         body.addWidget(self._right_panel, stretch=0)
+        self._adjust_side_panels()
 
         root.addLayout(body, stretch=1)
         root.addWidget(self._build_footer())
@@ -2530,6 +2538,8 @@ class MainWindow(QMainWindow):
         sc_full.activated.connect(self._toggle_fullscreen)
         sc_intr = QShortcut(QKeySequence("Escape"), self)
         sc_intr.activated.connect(self._do_interrupt)
+        sc_focus = QShortcut(QKeySequence("Ctrl+K"), self)
+        sc_focus.activated.connect(self._focus_command_input)
 
     def _show_camera_frame(self, img_bytes: bytes):
         """Slot — display camera preview overlay (main thread)."""
@@ -2538,7 +2548,7 @@ class MainWindow(QMainWindow):
         pw = _CameraPreview._W
         ph = self._cam_preview.height()
         self._cam_preview.setGeometry(
-            cw.width() - _RIGHT_W - pw - 12,
+            cw.width() - self._right_panel.width() - pw - 12,
             cw.height() - ph - 28,
             pw, ph,
         )
@@ -2904,8 +2914,19 @@ class MainWindow(QMainWindow):
         else:
             self.showFullScreen()
 
+    def _adjust_side_panels(self) -> None:
+        """Preserve the EDITH layout but free HUD space on narrow windows."""
+        if not hasattr(self, "_left_panel") or not hasattr(self, "_right_panel"):
+            return
+        viewport = self.centralWidget().width()
+        self._left_panel.setFixedWidth(142 if viewport < 980 else _LEFT_W)
+        self._right_panel.setFixedWidth(max(290, min(_RIGHT_W, int(viewport * 0.33))))
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if not hasattr(self, "_cam_preview"):
+            return
+        self._adjust_side_panels()
         cw = self.centralWidget()
         if self._overlay and self._overlay.isVisible():
             ow, oh = 460, 390
@@ -2932,7 +2953,7 @@ class MainWindow(QMainWindow):
         pw = _CameraPreview._W
         ph = self._cam_preview.height() or _CameraPreview._H
         self._cam_preview.setGeometry(
-            cw.width() - _RIGHT_W - pw - 12,
+            cw.width() - self._right_panel.width() - pw - 12,
             cw.height() - ph - 28,
             pw, ph,
         )
@@ -3448,6 +3469,8 @@ class MainWindow(QMainWindow):
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(6)
         self._input = QLineEdit()
+        self._input.setAccessibleName("EDITH command input")
+        self._input.setToolTip("Type a command or question. Ctrl+K focuses this field.")
         self._input.setPlaceholderText("Type a command or question…")
         self._input.setFont(QFont(FONT_MAIN, 10))
         self._input.setFixedHeight(32)
@@ -3472,9 +3495,15 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
         """)
+        send.setAccessibleName("Send command to EDITH")
+        send.setToolTip("Send command (Enter)")
         send.clicked.connect(self._send)
         row.addWidget(send)
         return row
+
+    def _focus_command_input(self) -> None:
+        self._input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self._input.selectAll()
 
     def _build_content_panel(self) -> QWidget:
         """
