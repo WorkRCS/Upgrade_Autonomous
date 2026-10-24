@@ -42,21 +42,10 @@ MAX_UPLOAD_MB = 500
 
 
 def _make_uploads_dir() -> Path:
-    """Return (and create) the cross-platform uploads folder."""
-    for candidate in [
-        Path.home() / "Downloads" / "EDITH Uploads",
-        Path.home() / "Documents" / "EDITH Uploads",
-        BASE_DIR / "uploads",
-    ]:
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            return candidate
-        except Exception:
-            pass
-    return BASE_DIR / "uploads"
+    """Create or safely migrate the EDITH uploads directory when needed."""
+    from core.branding import prepare_uploads_dir
+    return prepare_uploads_dir(base_dir=BASE_DIR)
 
-
-UPLOADS_DIR = _make_uploads_dir()
 
 def _get_gemini_key() -> str | None:
     try:
@@ -360,6 +349,29 @@ def _local_ip() -> str:
     return "127.0.0.1"
 
 
+def _certificate_paths() -> tuple[Path, Path]:
+    """Use EDITH certificate names, preserving an existing paired identity."""
+    certs = BASE_DIR / "config" / "certs"
+    key_p, crt_p = certs / "edith.key", certs / "edith.crt"
+    if key_p.exists() and crt_p.exists():
+        return key_p, crt_p
+    old_key, old_crt = certs / "jarvis.key", certs / "jarvis.crt"
+    if old_key.exists() and old_crt.exists():
+        if not key_p.exists() and not crt_p.exists():
+            try:
+                old_key.rename(key_p)
+                try:
+                    old_crt.rename(crt_p)
+                except OSError:
+                    key_p.rename(old_key)  # Restore a complete legacy pair
+                    raise
+                return key_p, crt_p
+            except OSError as exc:
+                print(f"[EDITH] Could not rename legacy TLS files: {type(exc).__name__}")
+        return old_key, old_crt  # Keep remote access functioning
+    return key_p, crt_p
+
+
 def _ensure_certs() -> bool:
     """
     Make sure config/certs holds a TLS key pair, generating a self-signed one the
@@ -374,8 +386,7 @@ def _ensure_certs() -> bool:
     plain HTTP, which still works — the QR code simply encodes http:// instead.
     """
     certs = BASE_DIR / "config" / "certs"
-    key_p = certs / "jarvis.key"
-    crt_p = certs / "jarvis.crt"
+    key_p, crt_p = _certificate_paths()
     if key_p.exists() and crt_p.exists():
         return True
 
@@ -468,7 +479,7 @@ class DashboardServer:
         self._pending_keys: dict[str, float] = {}
         self._device_sessions: dict[str, dict] = {}  # device_token → {session_key}
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
-        self._uploads_dir                 = UPLOADS_DIR
+        self._uploads_dir                 = _make_uploads_dir()
         self._login_html                  = _read("login.html")
         self._app_html                    = _read("app.html")
         self.app                          = self._build_app()
@@ -485,7 +496,7 @@ class DashboardServer:
     @staticmethod
     def _ssl_enabled() -> bool:
         certs = BASE_DIR / "config" / "certs"
-        return (certs / "jarvis.key").exists() and (certs / "jarvis.crt").exists()
+        return all(p.exists() for p in _certificate_paths())
 
     def get_url(self) -> str:
         proto = "https" if self._ssl_enabled() else "http"
@@ -843,8 +854,7 @@ class DashboardServer:
         """Second HTTPS server on PORT+1 sharing the same app and in-memory state.
         Chrome HTTPS-upgrades any bare IP:PORT the user types, so this port also needs TLS.
         User types IP:8001 → Chrome tries https → self-signed cert warning → accept once → done."""
-        ssl_key  = BASE_DIR / "config" / "certs" / "jarvis.key"
-        ssl_cert = BASE_DIR / "config" / "certs" / "jarvis.crt"
+        ssl_key, ssl_cert = _certificate_paths()
         asyncio.get_event_loop().run_in_executor(None, _ensure_network_access, PORT + 1)
         cfg = uvicorn.Config(
             self.app, host="0.0.0.0", port=PORT + 1, log_level="warning",
@@ -867,8 +877,7 @@ class DashboardServer:
         _ensure_certs()
 
         use_ssl  = self._ssl_enabled()
-        ssl_key  = BASE_DIR / "config" / "certs" / "jarvis.key"
-        ssl_cert = BASE_DIR / "config" / "certs" / "jarvis.crt"
+        ssl_key, ssl_cert = _certificate_paths()
 
         if use_ssl:
             asyncio.create_task(self._serve_alias())
