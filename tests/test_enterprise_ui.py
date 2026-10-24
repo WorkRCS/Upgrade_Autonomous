@@ -110,12 +110,87 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn('Could not save', dialog._feedback.text())
         dialog.reject()
 
-    def test_camera_workspace_returns_to_voice_rail(self):
+    def test_camera_workspace_returns_to_center_animation(self):
         window = self.window
         window._on_cam_stream(True)
         self.app.processEvents()
         self.assertEqual(window._center_split.widget(0), window._hud_cam_stack)
         window._on_cam_stream(False)
         self.app.processEvents()
-        self.assertEqual(window._center_split.widget(0), window._conversation)
+        self.assertEqual(window._center_split.widget(0), window._hud_cam_stack)
+        self.assertEqual(window._center_split.widget(1), window._conversation)
         self.assertEqual(window._hud_cam_stack.currentIndex(), 0)
+
+    def test_window_controls_minimize_maximize_restore_and_close(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        window = self.window
+        buttons = window._window_controls
+        for hint in [Qt.WindowType.WindowCloseButtonHint, Qt.WindowType.WindowMinimizeButtonHint,
+                     Qt.WindowType.WindowMaximizeButtonHint]:
+            self.assertTrue(window.windowFlags() & hint)
+        QTest.mouseClick(buttons.minimize_button, Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertTrue(window.isMinimized())
+        window.showNormal()
+        self.app.processEvents()
+        QTest.mouseClick(buttons.maximize_button, Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertTrue(window.isMaximized())
+        self.assertEqual(buttons.maximize_button.accessibleName(), 'Restore window')
+        QTest.mouseClick(buttons.maximize_button, Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertFalse(window.isMaximized())
+        self.assertEqual(buttons.maximize_button.accessibleName(), 'Maximize window')
+        QTest.mouseClick(buttons.close_button, Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertFalse(window.isVisible())
+
+    def test_fullscreen_still_has_accessible_window_controls(self):
+        window = self.window
+        window._toggle_fullscreen()
+        self.app.processEvents()
+        self.assertTrue(window.isFullScreen())
+        self.assertTrue(window._window_controls.close_button.isVisible())
+        self.assertTrue(window._window_controls.minimize_button.isVisible())
+        window._window_controls.maximize_button.click()
+        self.app.processEvents()
+        self.assertFalse(window.isFullScreen())
+
+    def test_in_app_dialog_close_reverts_theme(self):
+        from PyQt6.QtWidgets import QPushButton
+        window = self.window
+        original = self.ui.current_palette()
+        window._open_customize()
+        dialog = window._customize_overlay
+        self.app.processEvents()
+        dialog._set_color('#a0458c')
+        close = next(b for b in dialog.findChildren(QPushButton)
+                     if b.accessibleName() == 'Close dialog')
+        close.click()
+        self.app.processEvents()
+        self.assertFalse(dialog.isVisible())
+        self.assertEqual({k: v.lower() for k, v in original.items()}, self.ui.current_palette())
+
+    def test_compact_content_result_can_be_read_and_dismissed(self):
+        window = self.window
+        window.resize(840, 560)
+        window._show_content('Analysis', 'A verified tool result')
+        self.app.processEvents()
+        self.assertTrue(window._content_panel.isVisible())
+        self.assertFalse(window._conversation.isVisible())
+        self.assertGreater(window._content_display.height(), 40)
+        window._dismiss_content()
+        self.app.processEvents()
+        self.assertTrue(window._conversation.isVisible())
+        self.assertFalse(window._content_panel.isVisible())
+
+    def test_initial_geometry_preserves_title_bar_and_screen_origin(self):
+        from PyQt6.QtCore import QRect
+        from core.window_controls import initial_geometry
+        for screen in [QRect(0, 0, 1366, 720), QRect(-1920, 40, 1920, 1040),
+                       QRect(1920, 30, 1280, 690)]:
+            geometry = initial_geometry(screen, 1180, 780)
+            self.assertTrue(screen.contains(geometry))
+            self.assertGreaterEqual(geometry.top(), screen.top()+32)
+            self.assertLessEqual(geometry.bottom(), screen.bottom()-16)

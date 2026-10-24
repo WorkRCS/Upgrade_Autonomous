@@ -9,6 +9,18 @@ import re
 
 # Shared Lucide-inspired outline style, authored for this application.
 _ICON_PATHS: dict[str, str] = {
+    "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+    "arrow-up": '<path d="M12 20V4m-6 6 6-6 6 6"/>',
+    "sliders": '<path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',
+    "activity": '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+    "folder": '<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',
+    "cpu": '<rect x="6" y="6" width="12" height="12" rx="3"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/>',
+    "minimize": '<path d="M5 12h14"/>',
+    "restore": '<path d="M8 7V4h12v12h-3"/><rect x="4" y="8" width="12" height="12" rx="2"/>',
+    "checkmark": '<path d="m5 12 4 4L19 6"/>',
+    "key": '<circle cx="8" cy="8" r="5"/><path d="m12 12 8 8m-3-3 3-3m-6 0 3-3"/>',
+    "wifi": '<path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r=".75"/>',
+    "rotate-left": '<path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/>',
     # Dedicated EDITH application mark: E monogram inside a rounded panel.
     # Unlike generic toolbar icons, this is used for the window/taskbar identity.
     "edith-app": (
@@ -143,3 +155,4 @@ def svg_icon(name: str, color: str = "#A5B4FC"):
 def icon_names() -> tuple[str, ...]:
     """Names available for tests and UI callers."""
     return tuple(sorted(_ICON_PATHS))
+

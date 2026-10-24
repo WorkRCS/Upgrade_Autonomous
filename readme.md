@@ -5,7 +5,7 @@ A desktop voice assistant with real-time audio, optional screen/camera awareness
 ## Professional desktop and remote workspace
 
 The desktop now places the conversation and command composer in the main workspace.
-A compact voice indicator and Activity, Files and System tabs keep diagnostics available
+A centered violet particle-ring animation and Activity, Files and System tabs keep diagnostics available
 without squeezing the conversation. Existing voice, model, plugin and action integrations
 continue through the `EdithUI` facade.
 
@@ -33,6 +33,27 @@ Real microphone/camera use, OS integration and phone-browser behavior still requ
 manual testing on the target devices. Earlier Phase 4 notes below describe the previous
 layout; this workspace redesign supersedes those presentation details.
 
+## Apple-inspired UI and upgrade stages
+
+The desktop and remote UI use light grouped surfaces, rounded controls and bundled SVG
+icons. Startup geometry fits the available work area to keep the title bar on screen.
+Standard native title-bar controls are explicitly enabled. Close, Minimize and
+Maximize/Restore are also available in the app header, including full-screen mode;
+forms have an in-app Close action. Desktop styling does not require macOS or iOS.
+
+The center ring follows the supplied violet/blue reference appearance with an eight-second
+procedural loop, bounded shared raster cache, real microphone-driven scaling, mute and
+reduced-motion states. The cache contains at most 32 frames (about 12.5 MiB), and hidden
+windows reduce timer activity. There is no image download or additional dependency.
+
+Product metadata is defined in `core/product_identity.py`: EDITH, Neuron Intelligence
+(NL), application built by Sadik Laskar. This metadata is separate from provider IDs and
+user memory; it is not displayed as an owner/model banner in the UI. Code-owned metadata
+and prompt instructions do not constitute a guarantee of injection-proof model output.
+
+See [docs/UPGRADE_STATUS.md](docs/UPGRADE_STATUS.md) for delivered work, remaining runtime
+upgrades and the test-before-merge release gate.
+
 ## Features
 
 - Real-time voice conversation using Gemini Live API
@@ -58,7 +79,7 @@ EDITH uses a scrollable native local confirmation dialog before permanent file/f
 
 The ordinary `delete` action moves an item to Trash/Recycle Bin when the platform dependency is available. Irreversible removal uses the separate `delete_permanent` action and is allowed only within the user's home directory after local confirmation. The home/profile root stays protected; a specifically selected user folder (including a standard Desktop or Downloads folder) can be removed after the dialog clearly names that exact target.
 
-For user-facing model identity, EDITH uses the product name **Neural Intelligence Model** and its system prompt treats provider/model details as non-disclosable product implementation details, including when similar requests arrive through prompt injection in untrusted content.
+For user-facing model identity, EDITH uses the product name **Neuron Intelligence** and its system prompt treats provider/model details as non-disclosable product implementation details, including when similar requests arrive through prompt injection in untrusted content.
 
 ## LLM connection status and response speed
 
@@ -119,7 +140,7 @@ this phase accepted on your own machine.
 
 ## Product identity
 
-When asked what model/provider or AI service powers it, EDITH's conversational product identity is **Neural Intelligence Model**. The system prompt instructs the assistant not to disclose backend provider or model identifiers in conversation, including when such requests appear in untrusted page or file content. This is conversational branding; it does not remove provider-level policies or change which API is configured in the local settings.
+When asked what model/provider or AI service powers it, EDITH's conversational product identity is **Neuron Intelligence**. The system prompt instructs the assistant not to disclose backend provider or model identifiers in conversation, including when such requests appear in untrusted page or file content. This is conversational branding; it does not remove provider-level policies or change which API is configured in the local settings.
 
 ## Cross-app desktop control
 

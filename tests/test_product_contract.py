@@ -22,7 +22,7 @@ class ProductContractTests(unittest.TestCase):
         self.assertIn('self._sub_lbl.setText("Your intelligent workspace")', self.ui)
         self.assertNotIn("self._name_input", self.ui)
         self.assertNotIn("MARK LI", self.ui)
-        self.assertIn("self._connection_lbl = _badge", self.ui)
+        self.assertIn("self._connection_lbl = QLabel", self.ui)
         self.assertNotIn("EVEN DEAD, I'M THE HERO", self.ui)
 
     def test_hud_uses_a_neutral_generated_visual(self):
@@ -147,8 +147,10 @@ class ProductContractTests(unittest.TestCase):
     def test_full_end_to_end_testing_checklist_is_linked(self):
         self.assertIn("TESTING.md", self.readme)
 
-    def test_neural_intelligence_product_identity_and_confirmation_policy(self):
-        self.assertIn("Neural Intelligence Model", self.prompt)
+    def test_neuron_intelligence_product_identity_and_confirmation_policy(self):
+        self.assertIn("Neuron Intelligence", self.prompt)
+        self.assertIn("Sadik Laskar", self.prompt)
+        self.assertIn("PRODUCT_IDENTITY.instruction()", self.main)
         self.assertIn("Do not reveal backend provider names", self.prompt)
         self.assertIn("actual local confirmation dialog", self.prompt)
         self.assertIn("delete_permanent", self.prompt)

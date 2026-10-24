@@ -35,6 +35,8 @@ from PyQt6.QtWidgets import (
 
 from core.icons import svg_icon
 from core.ui_design import SurfaceDialog, ConversationView, polish_controls
+from core.window_controls import WindowControls, initial_geometry
+from core.energy_ring import draw_energy_ring, LOOP_SECONDS
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -46,7 +48,7 @@ CONFIG_DIR = BASE_DIR / "config"
 API_FILE   = CONFIG_DIR / "api_keys.json"
 
 # Modern Font Families
-FONT_MAIN = "Segoe UI" if platform.system() == "Windows" else "Helvetica Neue"
+FONT_MAIN = "SF Pro Text" if platform.system() == "Darwin" else ("Segoe UI" if platform.system() == "Windows" else "DejaVu Sans")
 FONT_MONO = "Consolas" if platform.system() == "Windows" else "Menlo"
 
 def _read_full_config() -> dict:
@@ -64,29 +66,29 @@ _RIGHT_W = 340
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 class C:
-    # Futuristic high-contrast refinement of the existing EDITH layout.
-    # Saved user accent overrides still apply; model and device settings do not change.
-    BG        = "#0C111B"
-    PANEL     = "#141D2B"
-    PANEL2    = "#1B293C"
-    BORDER    = "#29394F"
-    BORDER_B  = "#425977"
-    BORDER_A  = "#587699"
-    PRI       = "#8AB4FF"
-    PRI_DIM   = "#608AC9"
-    PRI_GHO   = "#203654"
-    ACC       = "#C0A5FD"
-    ACC2      = "#F1C78E"
-    GREEN     = "#64EDBE"
-    GREEN_D   = "#2DA888"
-    RED       = "#F48F9D"
-    MUTED_C   = "#F48F9D"
-    TEXT      = "#EFF4FC"
-    TEXT_DIM  = "#9BAAC0"
-    TEXT_MED  = "#CDD8E9"
-    WHITE     = "#FFFFFF"
-    DARK      = "#0A101A"
-    BAR_BG    = "#101A2A"
+    # Apple-inspired grouped surfaces; semantic status colors remain independent.
+    BG        = "#F2F2F7"
+    PANEL     = "#FFFFFF"
+    PANEL2    = "#E9E9F0"
+    BORDER    = "#D8D8E1"
+    BORDER_B  = "#B8B8C5"
+    BORDER_A  = "#8E8E98"
+    PRI       = "#007AFF"
+    PRI_DIM   = "#0063CC"
+    PRI_GHO   = "#E5F0FF"
+    ACC       = "#7946BD"
+    ACC2      = "#946200"
+    GREEN     = "#238446"
+    GREEN_D   = "#176735"
+    RED       = "#C93434"
+    MUTED_C   = "#C93434"
+    TEXT      = "#1C1C1E"
+    TEXT_DIM  = "#686872"
+    TEXT_MED  = "#454550"
+    WHITE     = "#1C1C1E"  # legacy transcript foreground token
+    DARK      = "#FFFFFF"
+    BAR_BG    = "#E5E5ED"
+
 
 
 # Ana renge (accent) bağlı anahtarlar — durum renkleri (ACC, GREEN, RED…) sabit kalır
@@ -355,7 +357,8 @@ class HudCanvas(QWidget):
     def __init__(self, face_path: str, assistant_name: str = "EDITH", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
-        self.setMinimumSize(180, 180)
+        self.setMinimumSize(160, 140)
+        self._loop_started = time.monotonic()
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self.muted    = False
@@ -438,8 +441,7 @@ class HudCanvas(QWidget):
         self._mic_level += (drive - self._mic_level) * 0.36
         input_active = listening and mic_fresh and self._mic_level > 0.08
         # Do not spend full-rate painting time while idle or camera view is shown.
-        frame_ms = (250 if not self.isVisible() else
-                    33 if self.speaking or input_active else 66)
+        frame_ms = 250 if not self.isVisible() else 33
         if self._tmr.interval() != frame_ms:
             self._tmr.setInterval(frame_ms)
         if now - self._last_t > (0.12 if self.speaking or input_active else 0.5):
@@ -497,46 +499,31 @@ class HudCanvas(QWidget):
         self.update()
 
     def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), qcol(C.BG))
-        W, H = self.width(), self.height()
-        cx, cy = W / 2, H * .36
-        energy = self._mic_level if self.state == "LISTENING" else 0.0
-        radius = min(W, H) * .21
-        color = C.MUTED_C if self.muted else C.PRI
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        for factor, alpha in [(1.4, 30), (1.16, 60), (1.0, 170)]:
-            r = radius * factor
-            p.setPen(QPen(qcol(color, alpha), 1.2))
-            p.drawEllipse(QPointF(cx, cy), r, r)
-        glow = QRadialGradient(cx, cy, radius)
-        glow.setColorAt(0, qcol(color, 95 + int(energy * 120)))
-        glow.setColorAt(1, qcol(C.PANEL, 50))
-        p.setBrush(glow)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(QPointF(cx, cy), radius * .88, radius * .88)
-        p.setPen(qcol(C.TEXT))
-        p.setFont(QFont(FONT_MAIN, 12, QFont.Weight.DemiBold))
-        p.drawText(QRectF(cx-60, cy-14, 120, 28), Qt.AlignmentFlag.AlignCenter, "EDITH")
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor(C.BG))
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(self.rect()), 22, 22)
+        painter.setClipPath(clip)
+        painter.fillRect(self.rect(), QColor("#05030D"))
+        reduced = getattr(self, "reduced_motion", False)
+        phase = 0.0 if reduced else ((time.monotonic() - self._loop_started) % LOOP_SECONDS) / LOOP_SECONDS * math.tau
+        visual = QRectF(0, 0, self.width(), max(60, self.height() - 30))
         fresh = time.monotonic() - self._mic_last_packet < .65
+        input_level = self._mic_level if fresh and self.state == "LISTENING" and not self.muted else 0.0
+        draw_energy_ring(painter, visual, phase, input_level, self.speaking, self.muted)
         if self.muted:
-            text, status_color = "Microphone muted", C.MUTED_C
+            text = "Microphone muted"
         elif self.speaking:
-            text, status_color = "Speaking", C.ACC
+            text = "Speaking"
         elif self.state == "LISTENING":
-            text, status_color = ((self._mic_source + " AUDIO DETECTED", C.GREEN) if fresh and energy > .11
-                                 else ("WAITING FOR MIC AUDIO", C.TEXT_DIM))
+            text = self._mic_source + " AUDIO DETECTED" if fresh and input_level > .11 else "WAITING FOR MIC AUDIO"
         else:
-            text, status_color = self.state.capitalize(), C.TEXT_MED
-        p.setPen(qcol(status_color))
-        p.setFont(QFont(FONT_MAIN, 9))
-        p.drawText(QRectF(0, H-56, W, 24), Qt.AlignmentFlag.AlignCenter, text)
-        for i in range(28):
-            height = 3 + int(energy * 18 * abs(math.sin(i * .7)))
-            if self.speaking:
-                height = 8 if getattr(self, "reduced_motion", False) else 5 + int(9*abs(math.sin(i*.5+self._tick*.12)))
-            p.fillRect(QRectF(cx-83+i*6, H-14-height, 3, height), qcol(status_color, 160))
+            text = self.state.replace("_", " ").capitalize()
+        painter.setPen(QColor("#B7B2D6"))
+        painter.setFont(QFont(FONT_MAIN, 9))
+        painter.drawText(QRectF(10, self.height() - 31, self.width() - 20, 22),
+                         Qt.AlignmentFlag.AlignCenter, text)
 
 
 class MetricBar(QWidget):
@@ -1140,7 +1127,7 @@ class ApiKeyOverlay(SurfaceDialog):
         self._test_btn.clicked.connect(self._test_key)
         row.addWidget(self._test_btn)
 
-        self._save_btn = QPushButton("SAVE & RECONNECT")
+        self._save_btn = QPushButton("Save && reconnect")
         self._save_btn.setFixedHeight(34)
         self._save_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1618,7 +1605,7 @@ class SetupOverlay(SurfaceDialog):
         self._error.setStyleSheet(f"color: {C.RED}; background: transparent;")
         layout.addWidget(self._error)
         self._key_input.returnPressed.connect(self._submit)
-        init_btn = QPushButton("▸  INITIALISE SYSTEMS")
+        init_btn = QPushButton("Get started")
         init_btn.setFont(QFont(FONT_MAIN, 10, QFont.Weight.Bold))
         init_btn.setFixedHeight(38)
         init_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1852,7 +1839,7 @@ class CustomizeOverlay(SurfaceDialog):
         lay.addWidget(self._feedback)
         btn_row = QHBoxLayout(); btn_row.setSpacing(8)
 
-        save_btn = QPushButton("▸  APPLY CHANGES")
+        save_btn = QPushButton("Apply changes")
         save_btn.setFixedHeight(36)
         save_btn.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2412,21 +2399,25 @@ class MainWindow(QMainWindow):
 
         # Keep the new default theme when an older installation saved the old cyan default.
         _ui_color = (_cfg.get("ui_color") or "").strip()
-        if _ui_color.lower() == "#00e5ff":
+        if _ui_color.lower() in {"#00e5ff", "#8ab4ff", "#61dff5"}:
             _ui_color = DEFAULT_UI_COLOR
         if _ui_color and _ui_color.lower() != DEFAULT_UI_COLOR:
             apply_ui_accent(_ui_color)
 
+        self.setWindowFlags(
+            Qt.WindowType.Window | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
         self.setWindowTitle("EDITH • PERSONAL ASSISTANT")
         self.setWindowIcon(svg_icon("edith-app", C.PRI))
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
         screen = QApplication.primaryScreen().availableGeometry()
-        self.move(
-            (screen.width()  - _DEFAULT_W) // 2,
-            (screen.height() - _DEFAULT_H) // 2,
-        )
+        geometry = initial_geometry(screen, _DEFAULT_W, _DEFAULT_H)
+        self.setMinimumSize(min(_MIN_W, geometry.width()), min(_MIN_H, geometry.height()))
+        self.setGeometry(geometry)
 
         self._confirmation_busy = False
         self._confirmation_queue = []
@@ -2453,7 +2444,8 @@ class MainWindow(QMainWindow):
         self._voice_male_btn: QPushButton | None = None
 
         central = QWidget()
-        central.setStyleSheet(f"background: {C.BG};")
+        central.setObjectName("WorkspaceRoot")
+        central.setStyleSheet(f"QWidget#WorkspaceRoot {{background: {C.BG};}}")
         self.setCentralWidget(central)
 
         root = QVBoxLayout(central)
@@ -2600,13 +2592,15 @@ class MainWindow(QMainWindow):
         sc_focus.activated.connect(self._focus_command_input)
         polish_controls(self._cam_preview)
         polish_controls(self._clipboard_panel)
+        if self._ready:
+            QTimer.singleShot(0, self._focus_command_input)
 
     def _build_workspace(self, body):
         """Promote conversation and composer; keep diagnostics in a context rail."""
         self._conversation = ConversationView()
         self._log.line_received.connect(self._conversation.append_line)
         self._center_split.insertWidget(0, self._conversation)
-        self._center_split.setSizes([500, 180, 220])
+        self._center_split.setSizes([240, 280, 180])
         body.removeWidget(self._left_panel)
         old = self._right_panel.layout()
         task_row = old.takeAt(0).layout()
@@ -2641,11 +2635,13 @@ class MainWindow(QMainWindow):
         f.addWidget(self._file_hint)
         f.addStretch()
         self._context_tabs = QTabWidget()
-        self._context_tabs.addTab(activity, "Activity")
-        self._context_tabs.addTab(files, "Files")
-        self._context_tabs.addTab(self._left_panel, "System")
-        old.addWidget(self._hud_cam_stack)
-        self._hud_cam_stack.setFixedHeight(208)
+        self._context_tabs.tabBar().setExpanding(True)
+        self._context_tabs.tabBar().setUsesScrollButtons(False)
+        self._context_tabs.addTab(activity, svg_icon("activity", C.PRI), "Activity")
+        self._context_tabs.addTab(files, svg_icon("folder", C.PRI), "Files")
+        self._context_tabs.addTab(self._left_panel, svg_icon("cpu", C.PRI), "System")
+        self._center_split.insertWidget(0, self._hud_cam_stack)
+        self._hud_cam_stack.setFixedHeight(240)
         old.addWidget(self._context_tabs, 1)
         self.hud.reduced_motion = self._reduced_motion
         self._drop_zone.reduced_motion = self._reduced_motion
@@ -2655,11 +2651,11 @@ class MainWindow(QMainWindow):
         main = QVBoxLayout(workspace)
         main.setContentsMargins(24, 18, 24, 14)
         main.setSpacing(12)
-        heading = QLabel("Assistant")
+        heading = QLabel("Good to see you.")
         heading.setFont(QFont(FONT_MAIN, 20, QFont.Weight.DemiBold))
         heading.setStyleSheet(f"color: {C.TEXT};")
         main.addWidget(heading)
-        subtitle = QLabel("Voice, files and actions in one place")
+        subtitle = QLabel("Your space to think, create and get things done.")
         subtitle.setStyleSheet(f"color: {C.TEXT_DIM};")
         main.addWidget(subtitle)
         body.removeWidget(self._center_split)
@@ -2672,10 +2668,10 @@ class MainWindow(QMainWindow):
         body.insertWidget(0, workspace, 1)
         c = C
         self._context_tabs.setStyleSheet(f"""
-            QTabWidget::pane {{border:0; background:{c.PANEL};}}
-            QTabBar::tab {{background:{c.DARK};color:{c.TEXT_DIM};padding:10px 12px;
-                border-bottom:2px solid transparent;}}
-            QTabBar::tab:selected {{color:{c.PRI};border-bottom-color:{c.PRI};}}
+            QTabWidget::pane {{border:0; background:{c.BG};}}
+            QTabBar::tab {{background:{c.PANEL2};color:{c.TEXT_DIM};padding:8px 6px;
+                border:0;border-radius:9px;margin:3px 2px;}}
+            QTabBar::tab:selected {{color:{c.TEXT};background:{c.PANEL};}}
         """)
         self._input.setPlaceholderText("Ask EDITH or describe a task…")
         self._input.setMinimumHeight(46)
@@ -2732,9 +2728,9 @@ class MainWindow(QMainWindow):
             self._center_split.setSizes([300, 200, 100])
             self._hud_cam_stack.setCurrentIndex(1)
         else:
-            self._right_panel.layout().insertWidget(0, self._hud_cam_stack)
+            self._center_split.insertWidget(0, self._hud_cam_stack)
             self._hud_cam_stack.setMinimumHeight(0)
-            self._hud_cam_stack.setFixedHeight(208)
+            self._hud_cam_stack.setFixedHeight(160 if self.height() < 660 else 240)
             self._hud_cam_stack.setCurrentIndex(0)
             self._cam_live_lbl.clear()
 
@@ -3096,7 +3092,15 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_left_panel") or not hasattr(self, "_right_panel"):
             return
         viewport = self.centralWidget().width()
-        self._left_panel.setFixedWidth(142 if viewport < 980 else _LEFT_W)
+        if hasattr(self, "_context_tabs"):
+            self._left_panel.setMinimumWidth(0)
+            self._left_panel.setMaximumWidth(16777215)
+        else:
+            self._left_panel.setFixedWidth(142 if viewport < 980 else _LEFT_W)
+        if hasattr(self, "_hud_cam_stack") and self._hud_cam_stack.currentIndex() == 0:
+            compact = self.height() < 660
+            showing_content = hasattr(self, "_content_panel") and self._content_panel.isVisible()
+            self._hud_cam_stack.setFixedHeight((140 if showing_content else 160) if compact else (220 if showing_content else 240))
         self._right_panel.setFixedWidth(max(290, min(_RIGHT_W, int(viewport * 0.33))))
 
     def resizeEvent(self, event):
@@ -3173,71 +3177,49 @@ class MainWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         w = QWidget()
-        w.setFixedHeight(54)
-        w.setStyleSheet(
-            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            f"stop:0 {C.DARK}, stop:0.5 {C.PANEL}, stop:1 {C.DARK}); "
-            f"border-bottom: 1px solid {C.PRI_DIM};"
-        )
+        w.setObjectName("WorkspaceHeader")
+        w.setFixedHeight(64)
+        w.setStyleSheet(f"QWidget#WorkspaceHeader {{background:{C.PANEL};border-bottom:1px solid {C.BORDER};}}")
         lay = QHBoxLayout(w)
-        lay.setContentsMargins(20, 0, 20, 0)
-
-        def _badge(txt, color=C.TEXT_MED):
-            l = QLabel(txt)
-            l.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
-            l.setStyleSheet(f"color: {color}; background: transparent;")
-            return l
-
-        self._connection_lbl = _badge("INITIALISING", C.TEXT_MED)
+        lay.setContentsMargins(16, 0, 16, 0)
+        lay.setSpacing(14)
+        self._window_controls = WindowControls(self, w)
+        lay.addWidget(self._window_controls)
+        title = QVBoxLayout()
+        title.setSpacing(1)
+        self._title_lbl = QLabel("EDITH")
+        self._title_lbl.setFont(QFont(FONT_MAIN, 14, QFont.Weight.DemiBold))
+        self._title_lbl.setStyleSheet(f"color:{C.TEXT};")
+        self._sub_lbl = QLabel("Your intelligent workspace")
+        self._sub_lbl.setFont(QFont(FONT_MAIN, 8))
+        self._sub_lbl.setStyleSheet(f"color:{C.TEXT_DIM};")
+        title.addWidget(self._title_lbl)
+        title.addWidget(self._sub_lbl)
+        lay.addLayout(title)
+        lay.addStretch()
+        self._connection_lbl = QLabel("INITIALISING")
+        self._connection_lbl.setStyleSheet(f"color:{C.PRI_DIM};background:{C.PRI_GHO};border-radius:10px;padding:6px 10px;")
+        self._connection_lbl.setFont(QFont(FONT_MAIN, 9))
+        self._connection_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         lay.addWidget(self._connection_lbl)
-        lay.addSpacing(12)
+        time_column = QVBoxLayout()
+        time_column.setSpacing(1)
+        self._clock_lbl = QLabel("00:00:00")
+        self._date_lbl = QLabel("")
+        for label in (self._clock_lbl, self._date_lbl):
+            label.setAlignment(Qt.AlignmentFlag.AlignRight)
+            label.setStyleSheet(f"color:{C.TEXT_DIM};")
+            label.setFont(QFont(FONT_MAIN, 8))
+            time_column.addWidget(label)
+        lay.addLayout(time_column)
         self._drawer_btn = QPushButton()
-        self._drawer_btn.setIcon(svg_icon("settings", C.PRI))
-        self._drawer_btn.setIconSize(QSize(17, 17))
-        self._drawer_btn.setFixedSize(28, 28)
-        self._drawer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._drawer_btn.setToolTip("Settings & Controls")
-        self._drawer_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {C.TEXT_DIM};
-                border: 1px solid {C.BORDER}; border-radius: 6px;
-            }}
-            QPushButton:hover {{ color: {C.PRI}; border-color: {C.PRI_DIM}; }}
-            QPushButton:checked {{ color: {C.PRI}; border-color: {C.PRI}; background: {C.PRI_GHO}; }}
-        """)
+        self._drawer_btn.setIcon(svg_icon("sliders", C.PRI))
+        self._drawer_btn.setIconSize(QSize(19, 19))
+        self._drawer_btn.setFixedSize(36, 36)
         self._drawer_btn.setCheckable(True)
+        self._drawer_btn.setToolTip("Settings & Controls")
         self._drawer_btn.clicked.connect(self._toggle_drawer)
         lay.addWidget(self._drawer_btn)
-        lay.addStretch()
-
-        mid = QVBoxLayout(); mid.setSpacing(0)
-        _disp = self._display_name
-        self._title_lbl = QLabel(_disp)
-        self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._title_lbl.setFont(QFont(FONT_MAIN, 16, QFont.Weight.Bold))
-        self._title_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        mid.addWidget(self._title_lbl)
-        _sub_text = "Your intelligent workspace"
-        self._sub_lbl = QLabel(_sub_text)
-        self._sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._sub_lbl.setFont(QFont(FONT_MAIN, 8))
-        self._sub_lbl.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent;")
-        mid.addWidget(self._sub_lbl)
-        lay.addLayout(mid)
-        lay.addStretch()
-
-        right_col = QVBoxLayout(); right_col.setSpacing(0)
-        self._clock_lbl = QLabel("00:00:00")
-        self._clock_lbl.setFont(QFont(FONT_MONO, 14, QFont.Weight.Bold))
-        self._clock_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        self._clock_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right_col.addWidget(self._clock_lbl)
-        self._date_lbl = QLabel("")
-        self._date_lbl.setFont(QFont(FONT_MAIN, 8))
-        self._date_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        self._date_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right_col.addWidget(self._date_lbl)
-        lay.addLayout(right_col)
         return w
 
     def _tick_clock(self):
@@ -3499,7 +3481,7 @@ class MainWindow(QMainWindow):
         self._composer_layout = self._build_input_row()
         lay.addLayout(self._composer_layout)
 
-        self._interrupt_btn = QPushButton("INTERRUPT  [ESC]")
+        self._interrupt_btn = QPushButton("Stop speaking · Esc")
         self._interrupt_btn.setIcon(svg_icon("stop-circle", C.MUTED_C))
         self._interrupt_btn.setIconSize(QSize(16, 16))
         self._interrupt_btn.setFixedHeight(34)
@@ -3520,7 +3502,7 @@ class MainWindow(QMainWindow):
         self._interrupt_btn.clicked.connect(self._do_interrupt)
         lay.addWidget(self._interrupt_btn)
 
-        self._mute_btn = QPushButton("MICROPHONE ACTIVE")
+        self._mute_btn = QPushButton("Microphone on")
         self._mute_btn.setFixedHeight(32)
         self._mute_btn.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
         self._mute_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3565,13 +3547,13 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(12, 10, 12, 12)
         lay.setSpacing(6)
 
-        hdr = QLabel("SETTINGS & CONTROLS")
+        hdr = QLabel("Settings")
         hdr.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
         hdr.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent; "
                           f"border-bottom: 1px solid {C.BORDER}; padding-bottom: 6px;")
         lay.addWidget(hdr)
 
-        remote_btn = QPushButton("◉  REMOTE CONTROL")
+        remote_btn = QPushButton("Connect a device")
         remote_btn.setFixedHeight(32)
         remote_btn.setFont(QFont(FONT_MAIN, 9, QFont.Weight.Bold))
         remote_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3579,7 +3561,7 @@ class MainWindow(QMainWindow):
         remote_btn.clicked.connect(self._open_remote)
         lay.addWidget(remote_btn)
 
-        fs_btn = QPushButton("FULLSCREEN  [F11]")
+        fs_btn = QPushButton("Full screen · F11")
         fs_btn.setIcon(svg_icon("maximize", C.PRI))
         fs_btn.setIconSize(QSize(15, 15))
         fs_btn.setFixedHeight(28)
@@ -3589,7 +3571,7 @@ class MainWindow(QMainWindow):
         fs_btn.clicked.connect(self._toggle_fullscreen)
         lay.addWidget(fs_btn)
 
-        sc_btn = QPushButton("⊞  CREATE DESKTOP SHORTCUT")
+        sc_btn = QPushButton("Create desktop shortcut")
         sc_btn.setFixedHeight(28)
         sc_btn.setFont(QFont(FONT_MAIN, 8))
         sc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3597,14 +3579,14 @@ class MainWindow(QMainWindow):
         sc_btn.clicked.connect(self._create_desktop_shortcut)
         lay.addWidget(sc_btn)
 
-        self._autostart_btn = QPushButton("◉  AUTO-START: OFF")
+        self._autostart_btn = QPushButton("Launch at login: Off")
         self._autostart_btn.setFixedHeight(28)
         self._autostart_btn.setFont(QFont(FONT_MAIN, 8))
         self._autostart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._autostart_btn.clicked.connect(self._toggle_autostart)
         lay.addWidget(self._autostart_btn)
 
-        cust_btn = QPushButton("PREFERENCES & THEME")
+        cust_btn = QPushButton("Appearance && preferences")
         cust_btn.setIcon(svg_icon("settings", C.PRI))
         cust_btn.setIconSize(QSize(15, 15))
         cust_btn.setFixedHeight(28)
@@ -3618,8 +3600,8 @@ class MainWindow(QMainWindow):
         self._motion_btn.setCheckable(True)
         self._motion_btn.setChecked(self._reduced_motion)
         self._motion_btn.setText(
-            "REDUCED MOTION: ON" if self._reduced_motion
-            else "REDUCED MOTION: OFF"
+            "Reduce motion: On" if self._reduced_motion
+            else "Reduce motion: Off"
         )
         self._motion_btn.setFixedHeight(28)
         self._motion_btn.setFont(QFont(FONT_MAIN, 8))
@@ -3628,7 +3610,7 @@ class MainWindow(QMainWindow):
         self._motion_btn.toggled.connect(self._toggle_reduced_motion)
         lay.addWidget(self._motion_btn)
 
-        key_btn = QPushButton("MODEL CONNECTIONS")
+        key_btn = QPushButton("Model connections")
         key_btn.setFixedHeight(30)
         key_btn.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
         key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3641,14 +3623,14 @@ class MainWindow(QMainWindow):
         voice_hdr.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
         lay.addWidget(voice_hdr)
 
-        self._voice_female_btn = QPushButton("FEMALE VOICE")
+        self._voice_female_btn = QPushButton("Female voice")
         self._voice_female_btn.setFixedHeight(28)
         self._voice_female_btn.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
         self._voice_female_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._voice_female_btn.clicked.connect(lambda: self._request_voice_mode("female"))
         lay.addWidget(self._voice_female_btn)
 
-        self._voice_male_btn = QPushButton("MALE VOICE")
+        self._voice_male_btn = QPushButton("Male voice")
         self._voice_male_btn.setFixedHeight(28)
         self._voice_male_btn.setFont(QFont(FONT_MAIN, 8, QFont.Weight.Bold))
         self._voice_male_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3663,7 +3645,7 @@ class MainWindow(QMainWindow):
         self._brief_btn.clicked.connect(self._toggle_brief)
         lay.addWidget(self._brief_btn)
 
-        plugin_btn = QPushButton("PLUGINS")
+        plugin_btn = QPushButton("Extensions")
         plugin_btn.setIcon(svg_icon("puzzle", C.PRI))
         plugin_btn.setIconSize(QSize(15, 15))
         plugin_btn.setFixedHeight(28)
@@ -3687,8 +3669,8 @@ class MainWindow(QMainWindow):
         self.hud.reduced_motion = self._reduced_motion
         self._drop_zone.reduced_motion = self._reduced_motion
         self._motion_btn.setText(
-            "REDUCED MOTION: ON" if enabled
-            else "REDUCED MOTION: OFF"
+            "Reduce motion: On" if enabled
+            else "Reduce motion: Off"
         )
         QSettings("EDITH", "EDITH").setValue("reduced_log_motion", enabled)
 
@@ -3758,7 +3740,7 @@ class MainWindow(QMainWindow):
     def _position_quick_drawer(self):
         if not hasattr(self, '_quick_drawer'):
             return
-        self._quick_drawer.setGeometry(14, 58, 300, max(180, self.centralWidget().height() - 92))
+        self._quick_drawer.setGeometry(max(8, self.centralWidget().width()-324), 68, 308, max(180, self.centralWidget().height() - 100))
 
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(6)
@@ -3781,7 +3763,9 @@ class MainWindow(QMainWindow):
         self._input.returnPressed.connect(self._send)
         row.addWidget(self._input)
 
-        send = QPushButton("▸")
+        send = QPushButton()
+        send.setIcon(svg_icon("arrow-up", "#FFFFFF"))
+        send.setIconSize(QSize(18, 18))
         send.setFixedSize(36, 36)
         send.setFont(QFont(FONT_MAIN, 12, QFont.Weight.Bold))
         send.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3857,7 +3841,7 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
         """)
-        dismiss.clicked.connect(w.hide)
+        dismiss.clicked.connect(self._dismiss_content)
         hdr.addWidget(dismiss)
         lay.addLayout(hdr)
 
@@ -3998,6 +3982,11 @@ class MainWindow(QMainWindow):
                 pending = self._confirmation_queue.pop(0)
                 QTimer.singleShot(0, lambda: self._show_action_confirmation(*pending))
 
+    def _dismiss_content(self):
+        self._content_panel.hide()
+        self._conversation.show()
+        self._adjust_side_panels()
+
     def _show_content(self, title: str, text: str):
         """Slot — runs on Qt main thread. Updates and shows the content panel."""
         import time as _time
@@ -4007,11 +3996,12 @@ class MainWindow(QMainWindow):
         self._content_display.moveCursor(
             self._content_display.textCursor().MoveOperation.Start
         )
-        first_show = not self._content_panel.isVisible()
+        self._conversation.hide()
         self._content_panel.show()
-        if first_show:
-            total = self._center_split.height()
-            self._center_split.setSizes([max(total - 220, 120), 220])
+        total = self._center_split.height()
+        if self._hud_cam_stack.currentIndex() == 0:
+            self._hud_cam_stack.setFixedHeight(140 if self.height() < 660 else 220)
+        self._center_split.setSizes([self._hud_cam_stack.height(), 0, max(100, total - self._hud_cam_stack.height())])
 
     def _build_footer(self) -> QWidget:
         w = QWidget()
@@ -4250,7 +4240,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, '_autostart_btn'):
             return
         if enabled:
-            self._autostart_btn.setText("◉  AUTO-START: ON")
+            self._autostart_btn.setText("Launch at login: On")
             self._autostart_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #001A08; color: {C.GREEN};
@@ -4259,7 +4249,7 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {{ background: #002010; }}
             """)
         else:
-            self._autostart_btn.setText("◉  AUTO-START: OFF")
+            self._autostart_btn.setText("Launch at login: Off")
             self._autostart_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent; color: {C.TEXT_DIM};
@@ -4283,7 +4273,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, '_brief_btn'):
             return
         if enabled:
-            self._brief_btn.setText("MORNING BRIEF: ON")
+            self._brief_btn.setText("Morning briefing: On")
             self._brief_btn.setIcon(svg_icon("sun", C.ACC2))
             self._brief_btn.setIconSize(QSize(15, 15))
             self._brief_btn.setStyleSheet(f"""
@@ -4295,7 +4285,7 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {{ background: #002010; }}
             """)
         else:
-            self._brief_btn.setText("MORNING BRIEF: OFF")
+            self._brief_btn.setText("Morning briefing: Off")
             self._brief_btn.setIcon(svg_icon("sun", C.TEXT_DIM))
             self._brief_btn.setIconSize(QSize(15, 15))
             self._brief_btn.setStyleSheet(f"""
@@ -4445,7 +4435,7 @@ class MainWindow(QMainWindow):
 
     def _style_mute_btn(self):
         if self._muted:
-            self._mute_btn.setText("MICROPHONE MUTED")
+            self._mute_btn.setText("Microphone muted")
             self._mute_btn.setIcon(svg_icon("mic-off", C.MUTED_C))
             self._mute_btn.setIconSize(QSize(16, 16))
             self._mute_btn.setStyleSheet(f"""
@@ -4455,7 +4445,7 @@ class MainWindow(QMainWindow):
                 }}
             """)
         else:
-            self._mute_btn.setText("MICROPHONE ACTIVE")
+            self._mute_btn.setText("Microphone on")
             self._mute_btn.setIcon(svg_icon("mic", C.GREEN))
             self._mute_btn.setIconSize(QSize(16, 16))
             self._mute_btn.setStyleSheet(f"""

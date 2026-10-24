@@ -81,6 +81,7 @@ from core.action_activity      import describe_tool_activity, activity_outcome
 from core.action_guard         import confirmation_requirement
 from core.realtime_audio      import enqueue_latest_audio
 from core.audio_meter          import pcm16_level
+from core.product_identity import PRODUCT_IDENTITY
 from core.task_scheduler      import TaskScheduler, TaskSpec, TaskReportedFailure, parallel_read_only
 from core.task_view           import compact_task_view
 from core.agent_reliability import (
@@ -125,12 +126,13 @@ def _save_config_value(key: str, value) -> None:
 
 def _load_system_prompt() -> str:
     try:
-        return PROMPT_PATH.read_text(encoding="utf-8")
+        return PROMPT_PATH.read_text(encoding="utf-8") + "\n" + PRODUCT_IDENTITY.instruction()
     except Exception:
         return (
             "You are a professional, general-purpose AI assistant. "
             "Be concise, direct, and use available tools to complete actionable tasks. "
             "Never simulate actions or claim success without tool confirmation."
+            + "\n" + PRODUCT_IDENTITY.instruction()
         )
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)

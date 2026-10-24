@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import sys
+import re
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
@@ -19,15 +20,15 @@ def control_style():
     c = palette()
     return f"""
     QPushButton {{background:{c.PANEL2}; color:{c.TEXT}; border:1px solid {c.BORDER};
-        border-radius:8px; padding:5px 12px; font-weight:500;}}
+        border-radius:12px; padding:7px 14px; font-weight:500;}}
     QPushButton:hover {{background:{c.PRI_GHO}; border-color:{c.PRI_DIM};}}
     QPushButton:pressed, QPushButton:checked {{background:{c.PRI_GHO}; border-color:{c.PRI};}}
     QPushButton:focus {{border:2px solid {c.PRI};}}
     QPushButton:disabled {{color:{c.TEXT_DIM}; background:{c.PANEL}; border-color:{c.BORDER};}}
-    QPushButton[role="primary"] {{background:{c.PRI}; color:{c.DARK}; font-weight:600;}}
+    QPushButton[role="primary"] {{background:{c.PRI}; color:#FFFFFF; font-weight:600;}}
     QPushButton[role="danger"] {{color:{c.RED}; border-color:{c.RED};}}
     QLineEdit, QTextEdit {{background:{c.DARK}; color:{c.TEXT}; border:1px solid {c.BORDER};
-        border-radius:8px; padding:9px; selection-background-color:{c.PRI_GHO};}}
+        border-radius:12px; padding:9px; selection-background-color:{c.PRI_GHO};}}
     QLineEdit:focus, QTextEdit:focus {{border:1px solid {c.PRI};}}
     QScrollBar:vertical {{background:{c.PANEL}; width:10px;}}
     QScrollBar::handle:vertical {{background:{c.BORDER_B}; min-height:24px; border-radius:5px;}}
@@ -53,9 +54,33 @@ def polish_controls(root):
                     widget.setMinimumHeight(max(36, widget.minimumHeight()))
                     widget.setMaximumHeight(16777215)
             if isinstance(widget, QPushButton):
+                from core.icons import svg_icon
+                text = widget.text()
+                clean = re.sub(r'^[◉◈▸⊞✕✓●○\s]+', '', text)
+                if clean.lower() in {'female voice', 'male voice'}:
+                    clean = clean.capitalize()
+                if clean != text and clean:
+                    widget.setText(clean)
+                if widget.icon().isNull() and clean:
+                    words = clean.lower()
+                    symbol = None
+                    if any(word in words for word in ('close', 'cancel', 'dismiss')):
+                        symbol = 'x'
+                    elif any(word in words for word in ('save', 'apply', 'test', 'continue', 'get started')):
+                        symbol = 'checkmark'
+                    elif 'key' in words or 'connection' in words:
+                        symbol = 'key'
+                    elif 'connect a device' in words:
+                        symbol = 'wifi'
+                    elif 'default' in words:
+                        symbol = 'rotate-left'
+                    if symbol:
+                        widget.setIcon(svg_icon(symbol, palette().PRI))
+                if 36 < widget.maximumWidth() < 200 and not widget.icon().isNull():
+                    widget.setFixedWidth(max(widget.maximumWidth(), widget.fontMetrics().horizontalAdvance(widget.text()) + 52))
                 widget.setCursor(Qt.CursorShape.PointingHandCursor)
                 if not widget.accessibleName():
-                    widget.setAccessibleName(widget.toolTip() or widget.text() or 'Close preview')
+                    widget.setAccessibleName(widget.toolTip() or widget.text().replace('&&', '&') or 'Close preview')
         elif isinstance(widget, QLabel):
             font = widget.font()
             font.setPointSizeF(max(9, font.pointSizeF()))
@@ -66,6 +91,8 @@ class SurfaceDialog(QDialog):
     """Scrollable, window-modal forms with consistent focus and dismissal."""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint
+                            | Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowCloseButtonHint)
         self.setWindowTitle('EDITH · Settings')
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setSizeGripEnabled(True)
@@ -90,6 +117,14 @@ class SurfaceDialog(QDialog):
             self._scroll.setWidget(content)
             outer = QVBoxLayout(self)
             outer.setContentsMargins(8, 8, 8, 8)
+            close = QPushButton('Close')
+            close.setAccessibleName('Close dialog')
+            close.clicked.connect(self.reject)
+            from PyQt6.QtWidgets import QHBoxLayout
+            header = QHBoxLayout()
+            header.addStretch()
+            header.addWidget(close)
+            outer.addLayout(header)
             outer.addWidget(self._scroll, 1)
             if type(self).__name__ == 'RemoteKeyOverlay':
                 layout.removeWidget(self._timer_lbl)
@@ -101,7 +136,7 @@ class SurfaceDialog(QDialog):
                     outer.addWidget(item.widget())
             self._wrapped = True
         c = palette()
-        self.setStyleSheet(f'QDialog, QScrollArea, QWidget {{background:{c.PANEL}; color:{c.TEXT};}}')
+        self.setStyleSheet(f'QDialog, QScrollArea, QWidget {{background:{c.BG}; color:{c.TEXT};}}')
         polish_controls(self)
         for frame in self.findChildren(QFrame):
             if frame.frameShape() == QFrame.Shape.HLine:
