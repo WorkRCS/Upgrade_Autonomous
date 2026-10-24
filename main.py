@@ -2090,6 +2090,7 @@ class EdithLive:
                     self.session          = session
                     self._connecting       = False
                     self.audio_in_queue   = asyncio.Queue(maxsize=120)  # at most ~6s PCM output
+                    self._audio_output_ready = False
                     # 1024 samples / 16 kHz ≈ 64 ms per microphone chunk.
                     # 32 chunks cap stale audio at ~2 s instead of ~12.8 s.
                     self.out_queue        = asyncio.Queue(maxsize=32)
