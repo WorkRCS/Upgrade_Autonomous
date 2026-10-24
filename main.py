@@ -1469,45 +1469,57 @@ class EdithLive:
         self.ui.show_input_level(pcm16_level(data), source)
 
     async def _listen_audio(self):
+        """Use the default PC microphone when available, without taking down
+        text input, phone input or the cloud session if hardware is missing.
+        Re-probe periodically so plugging a microphone back in can recover.
+        """
         print("[Assistant] 🎤 Mic started")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def callback(indata, frames, time_info, status):
             with self._speaking_lock:
                 edith_speaking = self._is_speaking
             if not edith_speaking and not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
-                # Meter computation happens on the asyncio thread, not inside
-                # PortAudio's real-time callback. Limit GUI signal traffic to
-                # about 10 Hz even when the audio stream sends faster chunks.
                 now = time.monotonic()
                 if now - self._last_mic_meter_at >= 0.10:
                     self._last_mic_meter_at = now
                     loop.call_soon_threadsafe(
                         self._publish_mic_activity, data, "PC"
                     )
-                # Never enqueue directly from PortAudio's callback thread.
-                # Keep only ~2 seconds of microphone backlog when the network slows.
                 loop.call_soon_threadsafe(
                     enqueue_latest_audio,
                     self.out_queue,
                     {"data": data, "mime_type": "audio/pcm"},
                 )
 
-        try:
-            with sd.InputStream(
-                samplerate=SEND_SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="int16",
-                blocksize=CHUNK_SIZE,
-                callback=callback,
-            ):
-                print("[Assistant] 🎤 Mic stream open")
-                while True:
-                    await asyncio.sleep(0.1)
-        except Exception as e:
-            print(f"[Assistant] ❌ Mic: {e}")
-            raise
+        unavailable = False
+        while True:
+            try:
+                with sd.InputStream(
+                    samplerate=SEND_SAMPLE_RATE,
+                    channels=CHANNELS,
+                    dtype="int16",
+                    blocksize=CHUNK_SIZE,
+                    callback=callback,
+                ):
+                    print("[Assistant] 🎤 Mic stream open")
+                    if unavailable:
+                        self.ui.write_log("AUDIO: Microphone available again.")
+                    unavailable = False
+                    while True:
+                        await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[Assistant] Microphone unavailable: {type(exc).__name__}: {exc}")
+                if not unavailable:
+                    self.ui.write_log(
+                        "AUDIO: Microphone unavailable or sample rate unsupported. "
+                        "Text and phone input remain available; retrying automatically."
+                    )
+                unavailable = True
+                await asyncio.sleep(5)
 
     async def _receive_audio(self):
         print("[Assistant] 👂 Recv started")
@@ -1536,7 +1548,10 @@ class EdithLive:
                             _audio_data = response.data
                             _SLICE = 2400
                             for _i in range(0, len(_audio_data), _SLICE):
-                                self.audio_in_queue.put_nowait(_audio_data[_i : _i + _SLICE])
+                                if self._audio_output_ready:
+                                    enqueue_latest_audio(
+                                        self.audio_in_queue, _audio_data[_i : _i + _SLICE]
+                                    )
 
                     if response.server_content:
                         sc = response.server_content
@@ -1635,56 +1650,82 @@ class EdithLive:
             raise
 
     async def _play_audio(self):
+        """Keep text and remote interaction alive on systems without speakers.
+
+        Never send Gemini's 24 kHz PCM to a device at a different sample rate
+        without proper conversion. Retry the configured output device after an
+        audio failure instead of restarting the entire Live session.
+        """
         print("[Assistant] 🔊 Play started")
+        unavailable = False
+        self._audio_output_ready = False
+        while True:
+            stream = None
+            try:
+                stream = sd.RawOutputStream(
+                    samplerate=RECEIVE_SAMPLE_RATE,
+                    channels=CHANNELS,
+                    dtype="int16",
+                    blocksize=CHUNK_SIZE,
+                )
+                stream.start()
+                self._audio_output_ready = True
+                if unavailable:
+                    # Discard audio that accumulated while no speaker was usable.
+                    while True:
+                        try:
+                            self.audio_in_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                    self.ui.write_log("AUDIO: Speaker available again.")
+                unavailable = False
 
-        stream = sd.RawOutputStream(
-            samplerate=RECEIVE_SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            blocksize=CHUNK_SIZE,
-        )
-        stream.start()
-
-        try:
-            while True:
-                try:
-                    chunk = await asyncio.wait_for(
-                        self.audio_in_queue.get(),
-                        timeout=0.1
-                    )
-                except asyncio.TimeoutError:
-                    if (
-                        self._turn_done_event
-                        and self._turn_done_event.is_set()
-                        and self.audio_in_queue.empty()
-                    ):
-                        self.set_speaking(False)
-                        self._turn_done_event.clear()
-                    continue
-
-                self.set_speaking(True)
-
-                # Batch all immediately-available chunks into one write to reduce
-                # thread-pool round-trips (was one asyncio.to_thread per 50ms slice).
-                # Cap at ~200 ms so interrupt() still stops audio within ~200 ms.
-                batch = bytearray(chunk)
-                while len(batch) < 9600:   # 9600 bytes ≈ 200 ms at 24 kHz / 16-bit mono
+                while True:
                     try:
-                        batch.extend(self.audio_in_queue.get_nowait())
-                    except asyncio.QueueEmpty:
-                        break
+                        chunk = await asyncio.wait_for(
+                            self.audio_in_queue.get(), timeout=0.1
+                        )
+                    except asyncio.TimeoutError:
+                        if (
+                            self._turn_done_event
+                            and self._turn_done_event.is_set()
+                            and self.audio_in_queue.empty()
+                        ):
+                            self.set_speaking(False)
+                            self._turn_done_event.clear()
+                        continue
 
-                try:
+                    self.set_speaking(True)
+                    batch = bytearray(chunk)
+                    while len(batch) < 9600:
+                        try:
+                            batch.extend(self.audio_in_queue.get_nowait())
+                        except asyncio.QueueEmpty:
+                            break
                     await asyncio.to_thread(stream.write, bytes(batch))
-                except (RuntimeError, asyncio.CancelledError):
-                    break   # executor shutting down — exit cleanly
-        except Exception as e:
-            print(f"[Assistant] ❌ Play: {e}")
-            raise
-        finally:
-            self.set_speaking(False)
-            stream.stop()
-            stream.close()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[Assistant] Speaker unavailable: {type(exc).__name__}: {exc}")
+                if not unavailable:
+                    self.ui.write_log(
+                        "AUDIO: Speaker unavailable or sample rate unsupported. "
+                        "Text and remote controls remain available; retrying automatically."
+                    )
+                unavailable = True
+                await asyncio.sleep(5)
+            finally:
+                self._audio_output_ready = False
+                self.set_speaking(False)
+                if stream is not None:
+                    try:
+                        stream.stop()
+                    except Exception:
+                        pass
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
 
     # ── Morning briefing ────────────────────────────────────────────────────────
 
@@ -2048,7 +2089,7 @@ class EdithLive:
                 ):
                     self.session          = session
                     self._connecting       = False
-                    self.audio_in_queue   = asyncio.Queue()
+                    self.audio_in_queue   = asyncio.Queue(maxsize=120)  # at most ~6s PCM output
                     # 1024 samples / 16 kHz ≈ 64 ms per microphone chunk.
                     # 32 chunks cap stale audio at ~2 s instead of ~12.8 s.
                     self.out_queue        = asyncio.Queue(maxsize=32)
