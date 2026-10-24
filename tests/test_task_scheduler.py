@@ -150,7 +150,7 @@ class TaskSchedulerTests(unittest.IsolatedAsyncioTestCase):
         called = []
 
         async def cancelled_action():
-            raise TaskReportedFailure(original)
+            raise TaskReportedFailure(original, status="cancelled")
 
         async def dependent():
             called.append("should not run")
@@ -159,7 +159,7 @@ class TaskSchedulerTests(unittest.IsolatedAsyncioTestCase):
             TaskSpec("a", "Confirm", cancelled_action, exclusive=True),
             TaskSpec("b", "Next", dependent, depends_on=("a",), exclusive=True),
         ])
-        self.assertEqual(results[0].status, "failed")
+        self.assertEqual(results[0].status, "cancelled")
         self.assertIs(results[0].value, original)
         self.assertEqual(results[1].status, "blocked")
         self.assertEqual(called, [])
