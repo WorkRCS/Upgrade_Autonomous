@@ -88,3 +88,10 @@ wrapper returns an interrupted result rather than a stale success. Subprocesses
 started by independent legacy paths are not falsely claimed as killable until
 they are migrated into the owned registry. No UI redesign or video asset
 replacement is included.
+
+Step 10 now connects the shared redacted `AuditLog` to the existing Activity
+Log and records dispatcher `tool.start`/`tool.finish` receipts for routed tools,
+including tier and outcome metadata. Large code/message payloads are omitted
+from dispatcher receipts; provider keys and registered secrets are redacted.
+Tool paths invoked outside the dispatcher still need their own migration before
+they can be claimed as complete.

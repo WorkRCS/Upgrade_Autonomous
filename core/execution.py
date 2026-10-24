@@ -75,6 +75,24 @@ SERVICE=ExecutionService()
 def configure_execution(ui):
     SERVICE.broker.confirmer=ui.confirm_sensitive_action
     SERVICE.output=ui.write_log
+    # The shared audit object is also used by the platform controller.  Attach
+    # one redacted, thread-safe activity stream so controller and code receipts
+    # become visible in the existing Activity Log without exposing arguments.
+    def _audit_listener(entry):
+        operation = str(entry.get('operation', 'action')) if isinstance(entry, dict) else 'action'
+        result_value = entry.get('result') if isinstance(entry, dict) else None
+        if operation.endswith('.start'):
+            state = 'START'
+        elif isinstance(result_value, dict):
+            state = 'OK' if result_value.get('ok') else 'FAILED'
+        else:
+            state = 'RECORDED'
+        ui.write_log(
+            f"AUDIT {operation} · "
+            f"tier {entry.get('tier', '?')} · {state}"
+        )
+    SERVICE.audit.listener=_audit_listener
+    SERVICE.controller.audit.listener=_audit_listener
 
 async def run_code_tool(handler,**kwargs):
     with SERVICE.job(getattr(handler,'__name__','code-tool')):

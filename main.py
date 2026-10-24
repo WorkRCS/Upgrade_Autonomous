@@ -779,6 +779,30 @@ class EdithLive:
         )
         self.ui._emit_if_open("task_detail_signal", view)
 
+    def _audit_tool_event(self, phase: str, name: str, args: dict, tier: int, result_value=None) -> None:
+        """Write dispatcher start/finish receipts through the shared redactor."""
+        safe_args = redact(dict(args or {}))
+        # Keep large user/code payloads out of the local audit file while
+        # retaining enough shape to diagnose which tool was called.
+        if isinstance(safe_args, dict):
+            for key in ("code", "source", "message_text", "text", "value"):
+                value = safe_args.get(key)
+                if isinstance(value, str) and len(value) > 1000:
+                    safe_args[key] = f"[omitted {len(value)} characters]"
+        safe_result = result_value
+        if isinstance(safe_result, str) and len(safe_result) > 2000:
+            safe_result = safe_result[:2000] + "…"
+        success = None if phase == "start" else activity_outcome(str(safe_result or "")) != "error"
+        try:
+            EXECUTION.audit.write(
+                "agent", f"tool.{phase}", safe_args, int(tier),
+                {"ok": success, "result": safe_result}
+            )
+        except Exception as exc:
+            # Audit failure must never prevent the actual tool result from
+            # reaching the model; the platform audit layer records its own error.
+            print(f"[Audit] Dispatcher receipt unavailable: {type(exc).__name__}")
+
     def _cancel_pending_tasks(self) -> None:
         """Qt callback: only pending work is cancelled, never running OS actions."""
         loop = self._loop
@@ -1192,6 +1216,15 @@ class EdithLive:
         # A model-provided "confirmed" field never grants approval. The user must
         # approve the exact sensitive operation in EDITH's local UI on this turn.
         backend_tier = tool_tier(name, args)
+        self._audit_tool_event("start", name, args, backend_tier)
+
+        def _completed(response):
+            self._audit_tool_event(
+                "finish", name, args, backend_tier,
+                (response.response or {}).get("result") if response else None,
+            )
+            return response
+
         confirmation_reason = confirmation_requirement(name, args)
         if backend_tier >= 2 and not confirmation_reason:
             # This is the backend floor for legacy tools that do not yet have a
@@ -1242,7 +1275,7 @@ class EdithLive:
                     if not self.ui.muted:
                         self.ui.set_state("LISTENING")
                     self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
-                    return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                    return _completed(types.FunctionResponse(id=fc.id, name=name, response={"result": result}))
                 args["_confirmation_window_target"] = requested_target
                 confirmation_reason = confirmation_requirement(name, args)
             except Exception as exc:
@@ -1251,7 +1284,7 @@ class EdithLive:
                 if not self.ui.muted:
                     self.ui.set_state("LISTENING")
                 self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
-                return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                return _completed(types.FunctionResponse(id=fc.id, name=name, response={"result": result}))
         elif restore_foreground:
             # The local approval dialog becomes the foreground window. Capture the
             # intended target now and restore it only after the user approves.
@@ -1266,7 +1299,7 @@ class EdithLive:
                     if not self.ui.muted:
                         self.ui.set_state("LISTENING")
                     self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
-                    return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                    return _completed(types.FunctionResponse(id=fc.id, name=name, response={"result": result}))
                 foreground_key = foreground.casefold()
                 if "edith" in foreground_key or "personal assistant" in foreground_key:
                     result = (
@@ -1276,7 +1309,7 @@ class EdithLive:
                     if not self.ui.muted:
                         self.ui.set_state("LISTENING")
                     self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — EDITH is foreground")
-                    return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                    return _completed(types.FunctionResponse(id=fc.id, name=name, response={"result": result}))
                 args["_confirmation_window_target"] = foreground
                 confirmation_reason += f"\nTarget desktop window: {foreground}"
             except Exception as exc:
@@ -1284,7 +1317,7 @@ class EdithLive:
                 if not self.ui.muted:
                     self.ui.set_state("LISTENING")
                 self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label} — target not identified")
-                return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                return _completed(types.FunctionResponse(id=fc.id, name=name, response={"result": result}))
 
         if confirmation_reason:
             self.ui.write_log(f"ACTIVITY CONFIRMATION REQUIRED: {activity_label}")
@@ -1303,10 +1336,10 @@ class EdithLive:
                 if not self.ui.muted:
                     self.ui.set_state("LISTENING")
                 self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label}")
-                return types.FunctionResponse(
+                return _completed(types.FunctionResponse(
                     id=fc.id, name=name,
                     response={"result": result},
-                )
+                ))
 
             self.ui.write_log(f"ACTIVITY CONFIRMED: {activity_label}")
             try:
@@ -1321,9 +1354,9 @@ class EdithLive:
                 if not self.ui.muted:
                     self.ui.set_state("LISTENING")
                 self.ui.write_log(f"ACTIVITY CANCELLED: {activity_label}")
-                return types.FunctionResponse(
+                return _completed(types.FunctionResponse(
                     id=fc.id, name=name, response={"result": result}
-                )
+                ))
             # Pass only dispatcher-owned approval context into controlled worker
             # threads.  This prevents shell/code paths from opening a second
             # dialog while preserving the backend broker check.
@@ -1357,10 +1390,10 @@ class EdithLive:
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             self.ui.write_log(f"ACTIVITY ✓ {activity_label}")
-            return types.FunctionResponse(
+            return _completed(types.FunctionResponse(
                 id=fc.id, name=name,
                 response={"result": "ok", "silent": True}
-            )
+            ))
 
         loop   = asyncio.get_event_loop()
         result = "Done."
@@ -1551,10 +1584,10 @@ class EdithLive:
         else:
             self.ui.write_log(f"ACTIVITY ✓ {activity_label}")
         print(f"[Assistant] Tool completed: {name}; outcome={outcome}")
-        return types.FunctionResponse(
+        return _completed(types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
-        )
+        ))
 
     async def _send_realtime(self):
         while True:
