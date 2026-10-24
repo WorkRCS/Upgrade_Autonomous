@@ -32,9 +32,12 @@ def migrate_legacy_uploads(parent: Path) -> Path:
     target = parent / UPLOAD_FOLDER_NAME
     legacy = parent / _LEGACY_UPLOAD_FOLDER_NAME
     if legacy.is_dir() and not legacy.is_symlink():
-        if not target.exists():
+        if not target.exists() and not any(p.is_symlink() for p in legacy.iterdir()):
             legacy.rename(target)
-        elif target.is_dir() and not target.is_symlink():
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+            if target.is_symlink() or not target.is_dir():
+                raise OSError("EDITH uploads target is not a regular directory")
             for entry in legacy.iterdir():
                 if entry.is_symlink():
                     continue  # Never follow or move links to unknown user data
