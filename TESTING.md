@@ -319,3 +319,62 @@ Limitations: this phase can parallelize independent read-only tool calls within
 one Gemini Live batch; it does not execute four desktop mouse/keyboard operations
 concurrently, nor four independent Live conversations. When a session disconnects
 during an OS action, inspect the actual outcome before attempting it again.
+
+
+## Phase 4 — Original EDITH UI refinement acceptance checks
+
+Phase 4 keeps the **existing EDITH HUD, desktop window, controls and voice
+workflow**. It is not the separate dashboard concept. The UI receives only
+bounded task metadata; no new cloud/local model settings are introduced.
+
+### Automated checks
+
+With an activated environment, run:
+
+```powershell
+python -m compileall -q main.py ui.py setup.py actions core dashboard memory plugins tests config tools
+python -m unittest discover -s tests -v
+python tests/check_inline_js.py
+```
+
+GitHub Actions also executes the new Phase 4 Qt smoke tests with
+`QT_QPA_PLATFORM=offscreen`; these exercise the real PyQt6 window without
+requesting audio hardware or connecting to Gemini/Local LLM.
+
+### Windows visual and accessibility verification
+
+1. Run EDITH normally from the **same** `ui/edith-interface` branch. Confirm
+   the recognizable original HUD, existing colors, title, microphone control,
+   file upload, Activity Log, quick drawer, and voice controls are unchanged.
+2. Resize the window to its minimum size. Check neither side panel overlaps
+   the HUD or input, and camera preview (if used) stays aligned to the HUD.
+3. Click inside another control, then press **Ctrl+K**. The command text field
+   should receive focus. Type a draft; press Ctrl+K again and verify its text
+   is selected, not silently submitted. **Enter** still sends messages.
+4. In Controls, turn on **REDUCED LOG ANIMATION**. Trigger several harmless
+   responses/Activity Log entries. Lines should appear quickly, the interface
+   should not freeze, and the toggle should survive restarting EDITH. Disable
+   it to retain the original animated style (now batched for speed).
+5. Above Activity Log, the existing **TASKS** count and **CANCEL WAITING**
+   must remain. Before tasks start, the details icon is disabled.
+6. Start a harmless read-only batch (for example, unrelated web searches).
+   Click the details chevron after tasks have been queued; observe up to four
+   current/recent status labels (**RUNNING**, **QUEUED**, **SUCCEEDED**,
+   **FAILED**, etc.). The view does **not** invent percentages and should
+   reflect the true Task Scheduler.
+7. Test a queued cancellation only, verifying running actions continue.
+   Close and reopen task details; the original Activity Log must remain usable.
+   Run several batches and verify the UI remains responsive and does not
+   continuously expand its log history without bound.
+8. Test a short microphone conversation, one local LLM inference and
+   Gemini Live TEST KEY again. Check both providers' settings/behavior are
+   unchanged and confirmations still appear for sensitive actions.
+9. If optional phone/remote dashboard is used, confirm the desktop UI
+   updates have not changed its access or pairing protocol.
+
+### Phase 4 completion gate
+
+The Phase 4 automated suite and Qt offscreen smoke tests must pass, and the
+user must verify the visual layout and usability on their own Windows PC
+before declaring Phase 4 **100% complete**. Do **not** begin Phase 5 before
+that explicit approval.
