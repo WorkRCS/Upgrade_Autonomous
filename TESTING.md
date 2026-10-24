@@ -516,3 +516,37 @@ the follow-up observation must still be performed where possible.
 cancelled message, history privacy, crash recovery and normal UI behavior.
 Do not claim Phase 6 is 100% complete until the user approves the on-device
 results. Do not store or send any private API keys or message contents in logs.
+
+
+## UI-only voice input feedback (post-phase UX upgrade)
+
+This is a display-only audio meter; it shows captured PCM activity, **not** proof
+that Gemini transcribed, received, or understood an utterance. It does not
+record or save microphone samples.
+
+1. Start EDITH normally on Windows; grant microphone permission and select
+   the correct input device if prompted. The existing UI layout remains intact.
+2. With no microphone stream yet, the HUD should say **WAITING FOR MIC AUDIO**.
+   When the PC microphone is streaming silently, it should say
+   **PC MIC RECEIVING** and show a low or flat waveform.
+3. Speak near the microphone. The HUD should change to **PC AUDIO DETECTED**
+   and show a stronger waveform plus responsive green orbital heartbeat.
+   Speaking more loudly should generally increase meter intensity.
+4. Stop talking; the green heartbeat should decay. Disconnect the mic or
+   stop its stream: after a short timeout the HUD must stop claiming input.
+5. Mute the mic; the HUD must show **MIC MUTED** and no input heartbeat.
+   Unmute and verify the input meter recovers.
+6. While EDITH plays its reply, the original **SPEAKING** output visual remains
+   dominant and microphone input does not masquerade as user speech.
+7. If you use the remote phone microphone, verify **PHONE MIC RECEIVING**
+   and **PHONE AUDIO DETECTED** while the phone streams audio. A dropped phone
+   stream must not remain marked as active indefinitely.
+8. Resize the EDITH window and drag the HUD splitter to its minimum height.
+   Confirm the status and waveform remain visible and animation is responsive.
+9. Verify normal text input, file uploads, Gemini Live test, Local LLM test,
+   task scheduler, and desktop-action confirmation still work as before.
+
+Automated checks: run \`python -m unittest discover -s tests -v\` and
+\`python -m py_compile main.py ui.py core/audio_meter.py\`.
+Record PASS/FAIL and relevant device/microphone details, never voice contents
+or keys. Windows audio-driver testing cannot be replaced by CI.
