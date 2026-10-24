@@ -750,10 +750,10 @@ class EdithLive:
     def _notify_task_status(self, states: list[dict]) -> None:
         """Publish bounded task metadata to the existing Qt UI; never tool args."""
         view = compact_task_view(states)
-        self.ui._win.task_status_signal.emit(
-            view["running"], view["queued"], view["completed"]
+        self.ui._emit_if_open(
+            "task_status_signal", view["running"], view["queued"], view["completed"]
         )
-        self.ui._win.task_detail_signal.emit(view)
+        self.ui._emit_if_open("task_detail_signal", view)
 
     def _cancel_pending_tasks(self) -> None:
         """Qt callback: only pending work is cancelled, never running OS actions."""
@@ -1465,7 +1465,9 @@ class EdithLive:
             await self.session.send_realtime_input(media=msg)
 
     def _publish_mic_activity(self, data: bytes, source: str = "PC") -> None:
-        """Feed UI-only audio intensity; never save raw input or alter Gemini data."""
+        """Ignore late PCM meter callbacks after the Qt interface has closed."""
+        if getattr(self.ui, "closed", False):
+            return
         self.ui.show_input_level(pcm16_level(data), source)
 
     async def _listen_audio(self):
@@ -2228,7 +2230,8 @@ def main():
     ui = EdithUI("face.png")
 
     def runner():
-        ui.wait_for_api_key()
+        if not ui.wait_for_api_key():
+            return  # User closed setup before initialization; do not start Live/audio.
         edith = EdithLive(ui)
         try:
             asyncio.run(edith.run())
