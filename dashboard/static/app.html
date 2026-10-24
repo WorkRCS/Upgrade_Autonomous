@@ -563,6 +563,24 @@
     let _micStm   = null;
     let _audioNd  = null;
 
+    // Phone audio must stay live instead of buffering seconds of stale speech
+    // when Wi-Fi/mobile network throughput drops. Keep PCM16/16 kHz unchanged.
+    let _voiceDroppedFrames = 0;
+    const _VOICE_MAX_BUFFERED_BYTES = 64 * 1024;
+
+    function _sendVoicePacket(socket, packet) {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (socket.bufferedAmount > _VOICE_MAX_BUFFERED_BYTES) {
+        _voiceDroppedFrames++;
+        if (_voiceDroppedFrames === 1) {
+          sys('Network is slow — skipping stale microphone audio.');
+        }
+        return;
+      }
+      _voiceDroppedFrames = 0;
+      socket.send(packet);
+    }
+
     function _micIdle() {
       micBtn.innerHTML = '🎤';
       micBtn.title     = 'Voice — tap to speak';
@@ -664,7 +682,7 @@
             if (_plen >= 1024) {
               const out = new Int16Array(_plen); let off = 0;
               for (const c of _pbuf) { out.set(c, off); off += c.length; }
-              if (ws.readyState === 1) ws.send(out.buffer);
+              _sendVoicePacket(ws, out.buffer);
               _pbuf = []; _plen = 0;
             }
           };
@@ -674,7 +692,7 @@
           // ScriptProcessor fallback (deprecated, still works everywhere)
           const sp = ctx.createScriptProcessor(4096, 1, 1);
           sp.onaudioprocess = e => {
-            if (ws.readyState === 1) ws.send(_f32toPcm16(e.inputBuffer.getChannelData(0), rate));
+            _sendVoicePacket(ws, _f32toPcm16(e.inputBuffer.getChannelData(0), rate));
           };
           src.connect(sp); sp.connect(ctx.destination);
           _audioNd = sp;
@@ -696,6 +714,7 @@
     }
 
     function _stopVoice() {
+      _voiceDroppedFrames = 0;
       if (_audioNd)  { try { _audioNd.disconnect(); }  catch (_) {}; _audioNd  = null; }
       if (_audioCtx) { try { _audioCtx.close(); }      catch (_) {}; _audioCtx = null; }
       if (_micStm)   { _micStm.getTracks().forEach(t => t.stop()); _micStm = null; }
