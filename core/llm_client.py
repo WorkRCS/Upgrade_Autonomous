@@ -230,6 +230,7 @@ def call_llm(
     messages: list,
     tools:    list | None = None,
     timeout:  int = 120,
+    max_tokens: int = 150,
 ) -> dict:
     """
     Non-streaming chat request.  Routes to Ollama or OpenAI-compatible backend.
@@ -246,7 +247,7 @@ def call_llm(
             "model":      model,
             "messages":   messages,
             "stream":     False,
-            "max_tokens": 150,
+            "max_tokens": max_tokens,
         }
         if tools:
             payload["tools"]       = tools
@@ -286,7 +287,7 @@ def call_llm(
         "messages":   messages,
         "stream":     False,
         "keep_alive": -1,
-        "options":    {"num_predict": 150, "num_gpu": 99},
+        "options":    {"num_predict": max_tokens, "num_gpu": 99},
     }
     if tools:
         payload["tools"] = tools
@@ -319,7 +320,7 @@ def call_llm(
             "Make sure Ollama is installed and run: ollama serve"
         )
     except requests.exceptions.Timeout:
-        raise RuntimeError("Ollama request timed out after 120 s.")
+        raise RuntimeError(f"Ollama request timed out after {timeout} s.")
     except requests.exceptions.HTTPError as e:
         print(f"[LLM] HTTPError: {e.response.status_code} — {e.response.text[:200]}")
         raise RuntimeError(f"Ollama HTTP error: {e.response.status_code}")
@@ -345,7 +346,9 @@ def call_llm_text(
     messages.append({"role": "user", "content": prompt})
 
     if model is None:
-        return call_llm(messages, timeout=timeout)["content"]
+        # Preserve the original 600-token budget for planning and coding tasks.
+        # Short conversational requests retain call_llm's 150-token default.
+        return call_llm(messages, timeout=timeout, max_tokens=600)["content"]
 
     url, _ = get_llm_settings()
     provider = get_llm_provider()
