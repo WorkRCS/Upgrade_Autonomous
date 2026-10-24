@@ -72,18 +72,18 @@ class TelemetryCollector:
             except Exception:pass
         return self._temp
     def sample(self):
-        now=time.monotonic();net=safe(psutil.net_io_counters);throughput=None
+        now=time.monotonic();net=safe(lambda:psutil.net_io_counters());throughput=None
         if net is not None and self._last_net is not None and now>self._last_time:
             throughput={'sent_bps':max(0,(net.bytes_sent-self._last_net.bytes_sent)/(now-self._last_time)),
                         'received_bps':max(0,(net.bytes_recv-self._last_net.bytes_recv)/(now-self._last_time))}
         self._last_net,self._last_time=net,now
-        boot=safe(psutil.boot_time);battery=safe(psutil.sensors_battery)
+        boot=safe(lambda:psutil.boot_time());battery=safe(lambda:psutil.sensors_battery())
         disk_root=Path.home().anchor or '/'
         return {'timestamp':time.time(),'cpu_percent':safe(lambda:psutil.cpu_percent(interval=None)),
             'cpu_per_core':safe(lambda:psutil.cpu_percent(interval=None,percpu=True)),
-            'cpu_frequency':record(safe(psutil.cpu_freq)),'load_average':safe(psutil.getloadavg),
-            'memory':record(safe(psutil.virtual_memory)),'swap':record(safe(psutil.swap_memory)),
-            'disk':record(safe(lambda:psutil.disk_usage(disk_root))),'disk_io':record(safe(psutil.disk_io_counters)),
+            'cpu_frequency':record(safe(lambda:psutil.cpu_freq())),'load_average':safe(lambda:psutil.getloadavg()),
+            'memory':record(safe(lambda:psutil.virtual_memory())),'swap':record(safe(lambda:psutil.swap_memory())),
+            'disk':record(safe(lambda:psutil.disk_usage(disk_root))),'disk_io':record(safe(lambda:psutil.disk_io_counters())),
             'network':record(net),'throughput':throughput,'battery':record(battery),
             'uptime_seconds':max(0,time.time()-boot) if boot else None,
             'process_count':safe(lambda:len(psutil.pids())),'gpu':self.gpu(),'temperature':self.temperature(),

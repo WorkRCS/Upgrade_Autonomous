@@ -131,6 +131,16 @@ class TelemetryTests(unittest.TestCase):
             data=t.sample()
         self.assertIsNone(data['memory']);self.assertIsNone(data['throughput']);self.assertIsNone(data['gpu'])
         self.assertIn('cpu_per_core',data);self.assertIn('disk_io',data)
+    def test_absent_psutil_methods_on_macos_are_individually_na(self):
+        collector=TelemetryCollector('Darwin')
+        fake=NS(cpu_percent=lambda **kw: [3.] if kw.get('percpu') else 3.)
+        with patch('edith.platform.telemetry.psutil',fake),patch.object(collector,'gpu',return_value=None),patch.object(collector,'temperature',return_value=None):
+            data=collector.sample()
+        self.assertEqual(data['cpu_percent'],3.)
+        self.assertIsNone(data['cpu_frequency'])
+        self.assertIsNone(data['battery'])
+        self.assertIsNone(data['memory'])
+
     def test_cached_snapshot_does_not_wait_for_slow_sensor(self):
         release=threading.Event()
         c=NS(_op_telemetry=lambda:release.wait(2))
