@@ -69,6 +69,26 @@ class RemoteNetworkTests(unittest.TestCase):
         self.assertEqual(result.json(), {"ok": True})
         self.assertEqual(self.server._command_queue.get_nowait(), "show status")
 
+    def test_disconnected_live_session_does_not_accept_remote_commands(self):
+        self.server.set_live_ready_callback(lambda: False)
+        result = self.client.post(
+            "/api/command",
+            headers={"Authorization": "Bearer " + self.token},
+            json={"text": "do not queue"},
+        )
+        self.assertEqual(result.status_code, 503)
+        self.assertFalse(result.json()["ok"])
+        self.assertTrue(self.server._command_queue.empty())
+
+        self.server.set_live_ready_callback(lambda: True)
+        result = self.client.post(
+            "/api/command",
+            headers={"Authorization": "Bearer " + self.token},
+            json={"text": "now ready"},
+        )
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(self.server._command_queue.get_nowait(), "now ready")
+
     def test_browser_has_reconnect_and_no_auto_command_resubmission(self):
         page = (ROOT / "dashboard" / "static" / "app.html").read_text(encoding="utf-8")
         login = (ROOT / "dashboard" / "static" / "login.html").read_text(encoding="utf-8")
@@ -79,6 +99,7 @@ class RemoteNetworkTests(unittest.TestCase):
         self.assertIn("_VOICE_MAX_BUFFERED_BYTES", page)
         self.assertIn("_commandInFlight", page)
         self.assertIn("Command delivery unconfirmed.", page)
+        self.assertIn("command was not queued. Your draft is kept.", page)
         self.assertNotIn("Connection lost — refresh to reconnect.", page)
         self.assertIn("r.status === 401 || r.status === 403", login)
         self.assertIn("pairing saved", login)
