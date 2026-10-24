@@ -2367,7 +2367,7 @@ class MainWindow(QMainWindow):
             apply_ui_accent(_ui_color)
 
         self.setWindowTitle("EDITH • PERSONAL ASSISTANT")
-        self.setWindowIcon(svg_icon("brain-circuit", C.PRI))
+        self.setWindowIcon(svg_icon("edith-app", C.PRI))
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -2382,7 +2382,7 @@ class MainWindow(QMainWindow):
         self.on_api_key_saved  = None   # callback after a tested key is saved
         self.on_voice_mode_clicked = None
         self.on_interrupt      = None   # callable: () -> None — stop speech
-        self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
+        self.get_plugins       = None   # callable: () -> list[dict], set by EdithLive
         self._muted            = False
         self._current_file: str | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
@@ -2603,53 +2603,47 @@ class MainWindow(QMainWindow):
         self._cam_stop.set()
 
     # ------------------------------------------------------------------
-    # Neutral app icon — abstract illuminated orb, without character or brand marks.
+    # Dedicated EDITH monogram icon; generated locally in standard Windows sizes.
     @staticmethod
     def _build_assistant_icon(out_path: Path) -> bool:
-        """Render a clean multi-resolution assistant icon using Pillow."""
+        """Generate a distinct EDITH application ICO; no network or external images."""
         try:
             import PIL.Image
             import PIL.ImageDraw
-            import PIL.ImageFilter
         except ImportError:
             return False
 
-        ACCENT = (165, 180, 252)
-        HILITE = (222, 226, 255)
-        BASE = (11, 13, 18)
-
-        def _render(size: int) -> PIL.Image.Image:
+        def _render(size: int):
             scale = 4
             side = size * scale
             image = PIL.Image.new("RGBA", (side, side), (0, 0, 0, 0))
             draw = PIL.ImageDraw.Draw(image)
-            cx = cy = side // 2
-            radius = side // 2 - scale * 2
-            draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill=(*BASE, 255))
-            draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius),
-                         outline=(*ACCENT, 225), width=max(2, side // 38))
-            glow = PIL.Image.new("RGBA", (side, side), (0, 0, 0, 0))
-            gd = PIL.ImageDraw.Draw(glow)
-            halo = int(radius * 0.52)
-            gd.ellipse((cx-halo, cy-halo, cx+halo, cy+halo), fill=(*ACCENT, 48))
-            glow = glow.filter(PIL.ImageFilter.GaussianBlur(max(2, side // 12)))
-            image = PIL.Image.alpha_composite(image, glow)
-            draw = PIL.ImageDraw.Draw(image)
-            inner = int(radius * 0.42)
-            draw.ellipse((cx-inner, cy-inner, cx+inner, cy+inner),
-                         outline=(*ACCENT, 200), width=max(2, side // 48))
-            core = int(radius * 0.16)
-            draw.ellipse((cx-core, cy-core, cx+core, cy+core), fill=(*HILITE, 255))
+            pad = 2 * scale
+            width = max(2, int(side * 0.075))
+            draw.rounded_rectangle(
+                (pad, pad, side - pad - 1, side - pad - 1),
+                radius=int(side * 0.24), fill=(11, 13, 18, 255),
+                outline=(165, 180, 252, 255), width=width,
+            )
+            x0, x1 = int(side * 0.34), int(side * 0.70)
+            y0, y1 = int(side * 0.28), int(side * 0.72)
+            bar = max(3, int(side * 0.075))
+            draw.line((x0, y0, x0, y1), fill=(233, 236, 255, 255), width=bar)
+            for y in (y0, side // 2, y1):
+                draw.line((x0, y, x1, y), fill=(233, 236, 255, 255), width=bar)
             return image.resize((size, size), PIL.Image.Resampling.LANCZOS)
 
         try:
-            sizes = [256, 128, 64, 48, 32, 16]
-            frames = [_render(s) for s in sizes]
-            frames[0].save(out_path, format="ICO", append_images=frames[1:],
-                           sizes=[(s, s) for s in sizes])
-            return True
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            sizes = (256, 128, 64, 48, 32, 16)
+            frames = [_render(size) for size in sizes]
+            frames[0].save(
+                out_path, format="ICO", append_images=frames[1:],
+                sizes=[(size, size) for size in sizes],
+            )
+            return out_path.is_file() and out_path.stat().st_size > 0
         except Exception as exc:
-            print(f"[Shortcut] Icon generation failed: {exc}")
+            print(f"[EDITH] Icon creation failed: {type(exc).__name__}: {exc}")
             return False
 
     @staticmethod
@@ -2794,10 +2788,10 @@ class MainWindow(QMainWindow):
         python  = Path(sys.executable)
         desktop = self._get_desktop_dir()
 
-        # Neutral app icon (.ico — also exported as .png for Linux/macOS)
-        ico_path = Path(__file__).resolve().parent / "config" / "assistant.ico"
-        if not ico_path.exists():
-            self._build_assistant_icon(ico_path)
+        # Dedicated EDITH application icon (.ico, exported as .png for Linux/macOS)
+        ico_path = Path(__file__).resolve().parent / "config" / "edith.ico"
+        if not ico_path.exists() and not self._build_assistant_icon(ico_path):
+            self._log.append_log("ERR: EDITH icon unavailable. Install Pillow and retry.")
 
         try:
             _os = platform.system()
@@ -2821,7 +2815,7 @@ class MainWindow(QMainWindow):
 
                 # Launcher executable (bash — runs as background process,
                 # macOS does NOT open Terminal for executables inside .app bundles)
-                launcher = mac_dir / "Assistant"
+                launcher = mac_dir / "EDITH"
                 launcher.write_text(
                     "#!/usr/bin/env bash\n"
                     f'cd "{script.parent}"\n'
@@ -2836,10 +2830,10 @@ class MainWindow(QMainWindow):
                     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                     '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
                     '<plist version="1.0"><dict>\n'
-                    '  <key>CFBundleExecutable</key><string>Assistant</string>\n'
+                    '  <key>CFBundleExecutable</key><string>EDITH</string>\n'
                     '  <key>CFBundleIdentifier</key>'
-                    '<string>local.aiassistant.desktop</string>\n'
-                    '  <key>CFBundleName</key><string>AI Assistant</string>\n'
+                    '<string>app.edith.assistant</string>\n'
+                    '  <key>CFBundleName</key><string>EDITH</string>\n'
                     '  <key>CFBundlePackageType</key><string>APPL</string>\n'
                     '  <key>CFBundleVersion</key><string>1.0</string>\n'
                     '</dict></plist>\n'
@@ -2877,10 +2871,10 @@ class MainWindow(QMainWindow):
                         png_path = ico_path  # fallback to .ico
 
                 icon_line = f"Icon={png_path}\n" if png_path.exists() else ""
-                desk = desktop / "ai-assistant.desktop"
+                desk = desktop / "edith.desktop"
                 desk.write_text(
                     "[Desktop Entry]\n"
-                    "Name=AI Assistant\n"
+                    "Name=EDITH\n"
                     f"Exec={python} {script}\n"
                     f"Path={script.parent}\n"
                     "Type=Application\n"
@@ -2890,7 +2884,7 @@ class MainWindow(QMainWindow):
                 )
                 desk.chmod(desk.stat().st_mode | 0o755)
 
-            self._log.append_log("SYS: Desktop shortcut created.")
+            self._log.append_log("SYS: EDITH desktop shortcut created.")
         except Exception as e:
             self._log.append_log(f"ERR: Shortcut failed — {e}")
 
@@ -3736,7 +3730,7 @@ class MainWindow(QMainWindow):
                         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                         '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
                         '<plist version="1.0"><dict>\n'
-                        '  <key>Label</key><string>local.aiassistant.desktop</string>\n'
+                        '  <key>Label</key><string>app.edith.assistant</string>\n'
                         '  <key>ProgramArguments</key><array>\n'
                         f'    <string>{sys.executable}</string>\n'
                         f'    <string>{script}</string>\n'
@@ -4022,10 +4016,12 @@ class _RootShim:
         pass
 
 
-class JarvisUI:
+class EdithUI:
     def __init__(self, face_path: str, size=None):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
+        self._app.setApplicationName("EDITH")
+        self._app.setWindowIcon(svg_icon("edith-app", C.PRI))
         self._win = MainWindow(face_path)
         self._win.show()
         self.root = _RootShim(self._app)
