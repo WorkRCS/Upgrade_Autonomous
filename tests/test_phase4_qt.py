@@ -80,6 +80,25 @@ class Phase4QtSmokeTests(unittest.TestCase):
         self.assertTrue(window._input.hasFocus())
         self.assertEqual(window._input.selectedText(), "retain typed text")
 
+    def test_unsent_commands_are_preserved_without_overwriting_new_drafts(self):
+        window = self.window
+        window.on_text_command = lambda message: False
+        window._input.setText("retry this command")
+        window._send()
+        self.assertEqual(window._input.text(), "retry this command")
+
+        window.on_text_command = lambda message: True
+        window._send()
+        self.assertEqual(window._input.text(), "")
+        window.text_send_failed_signal.emit("retry this command")
+        self.app.processEvents()
+        self.assertEqual(window._input.text(), "retry this command")
+
+        window._input.setText("a newer draft")
+        window.text_send_failed_signal.emit("older failed command")
+        self.app.processEvents()
+        self.assertEqual(window._input.text(), "a newer draft")
+
     def test_reduced_motion_is_ui_only_and_preserves_text(self):
         window = self.window
         window._log.set_reduced_motion(True)
